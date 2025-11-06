@@ -16,7 +16,7 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import warnings
-from clip import clip
+from models.clip import clip
 from dataloader.video_dataloader import train_data_loader, test_data_loader
 from models.Generate_Model import GenerateModel
 from models.Text import *
