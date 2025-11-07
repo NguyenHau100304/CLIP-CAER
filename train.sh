@@ -1,10 +1,9 @@
 #!/bin/bash
-# Chạy từ thư mục RAER/
 
-python CLIP-CAER/main.py \
+python main.py \
     --mode train \
     --exper-name test \
-    --gpu 0 \
+    --gpu 2 \
     --epochs 20 \
     --batch-size 8 \
     --lr 0.01 \
@@ -20,14 +19,12 @@ python CLIP-CAER/main.py \
     --image-size 224 \
     --seed 42 \
     --print-freq 10 \
-    \
-    --root-dir ./RAER \
-    --train-annotation annotation/train.txt \
-    --test-annotation annotation/test.txt \
-    --clip-path ViT-B/32 \
-    --bounding-box-face ./RAER/bounding_box/face.json \
-    --bounding-box-body ./RAER/bounding_box/body.json \
-    \
+    --root-dir /media/F/FERDataset/AER-DB \
+    --train-annotation RAER/train_abs.txt \
+    --test-annotation RAER/test_abs.txt \
+    --clip-path /media/D/zlm/code/single_four/models/ViT-B-32.pt \
+    --bounding-box-face /media/F/FERDataset/AER-DB/RAER/bounding_box/face_abs.json \
+    --bounding-box-body /media/F/FERDataset/AER-DB/RAER/bounding_box/body_abs.json \
     --text-type class_descriptor \
     --contexts-number 8 \
     --class-token-position end \

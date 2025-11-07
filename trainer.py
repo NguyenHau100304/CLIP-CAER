@@ -9,7 +9,7 @@ from utils.utils import AverageMeter, ProgressMeter
 
 class Trainer:
     """A class that encapsulates the training and validation logic."""
-    def __init__(self, model, criterion, optimizer, scheduler, device,log_txt_path):
+    def __init__(self, model, criterion, optimizer, scheduler, device, log_txt_path):
         self.model = model
         self.criterion = criterion
         self.optimizer = optimizer
@@ -42,13 +42,16 @@ class Trainer:
         context = torch.enable_grad() if is_train else torch.no_grad()
         
         with context:
-            for i, (images_face, images_body, target) in enumerate(loader):
+            # === CẬP NHẬT: Giải nén 3 tensor ảnh ===
+            for i, (images_face, images_body, images_skeleton, target) in enumerate(loader):
                 images_face = images_face.to(self.device)
                 images_body = images_body.to(self.device)
+                images_skeleton = images_skeleton.to(self.device) # MỚI
                 target = target.to(self.device)
 
                 # Forward pass
-                output = self.model(images_face, images_body)
+                # === CẬP NHẬT: Truyền 3 ảnh vào model ===
+                output = self.model(images_face, images_body, images_skeleton)
                 loss = self.criterion(output, target)
 
                 if is_train:

@@ -1,53 +1,54 @@
-# utils/loss.py
+# loss.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import normal
 
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=1.0, reduction='mean'):
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
+class LSR2(nn.Module):
+    def __init__(self,e,label_mode):
+        super().__init__()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        self.e = e
+        self.label_mode = label_mode
 
-    def forward(self, inputs, targets):
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
-        pt = torch.exp(-ce_loss)
-        focal_loss = (1 - pt) ** self.gamma * ce_loss
+    def _one_hot(self, labels, classes, value=1):
+        one_hot = torch.zeros(labels.size(0), classes)
+        labels = labels.view(labels.size(0), -1)
+        value_added = torch.Tensor(labels.size(0), 1).fill_(value)
+        value_added = value_added.to(labels.device)
+        one_hot = one_hot.to(labels.device)
+        one_hot.scatter_add_(1, labels, value_added)
+        return one_hot
 
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        return focal_loss
+    def _smooth_label(self, target, length, smooth_factor):
+        one_hot = self._one_hot(target, length, value=1 - smooth_factor)
+        mask = (one_hot==0)
+        balance_weight = torch.tensor([0.065267810,0.817977729,1.035884371,0.388144355,0.19551041668]).to(one_hot.device)
+        ex_weight = balance_weight.expand(one_hot.size(0),-1)
+        resize_weight = ex_weight[mask].view(one_hot.size(0),-1)
+        resize_weight /= resize_weight.sum(dim=1, keepdim=True)
+        one_hot[mask] += (resize_weight*smooth_factor).view(-1)
+        return one_hot.to(target.device)
+    
+    def forward(self, x, target):
+        smoothed_target = self._smooth_label(target, x.size(1), self.e)
+        x = self.log_softmax(x)
+        loss = torch.sum(- x * smoothed_target, dim=1)
+        return torch.mean(loss)
 
-class LabelSmoothingCrossEntropy(nn.Module):
-    def __init__(self, eps=0.1, reduction='mean'):
-        super(LabelSmoothingCrossEntropy, self).__init__()
-        self.eps = eps
-        self.reduction = reduction
+class BlvLoss(nn.Module):
+    def __init__(self, cls_num_list, sigma=4, loss_name='BlvLoss'):
+        super(BlvLoss, self).__init__()
+        cls_list = torch.cuda.FloatTensor(cls_num_list)
+        frequency_list = torch.log(cls_list)
+        self.frequency_list = torch.log(sum(cls_list)) - frequency_list
+        self.reduction = 'mean'
+        self.sampler = normal.Normal(0, sigma)
+        self._loss_name = loss_name
 
     def forward(self, pred, target):
-        n_classes = pred.size(1)
-        log_preds = F.log_softmax(pred, dim=1)
-        loss = -log_preds.sum(dim=1)
-        nll = F.nll_loss(log_preds, target, reduction='none')
-        loss = (1 - self.eps) * nll + self.eps / n_classes * loss
+        viariation = self.sampler.sample(pred.shape).clamp(-1, 1).to(pred.device)
+        pred = pred + (viariation.abs() / self.frequency_list.max() * self.frequency_list)
+        loss = F.cross_entropy(pred, target, reduction='none')
 
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
-
-class HybridFocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=1.0, eps=0.1, lambda_focal=0.7):
-        super(HybridFocalLoss, self).__init__()
-        self.focal = FocalLoss(alpha=alpha, gamma=gamma)
-        self.ls = LabelSmoothingCrossEntropy(eps=eps)
-        self.lambda_focal = lambda_focal
-
-    def forward(self, inputs, targets):
-        loss_focal = self.focal(inputs, targets)
-        loss_ls = self.ls(inputs, targets)
-        return self.lambda_focal * loss_focal + (1 - self.lambda_focal) * loss_ls
+        return loss.mean()

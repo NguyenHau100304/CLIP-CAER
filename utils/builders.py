@@ -27,7 +27,7 @@ def build_model(args: argparse.Namespace, input_text: list) -> torch.nn.Module:
     for name, param in model.named_parameters():
         param.requires_grad = False
 
-    trainable_params_keywords = ["image_encoder", "temporal_net", "prompt_learner", "temporal_net_body", "project_fc"]
+    trainable_params_keywords = ["image_encoder", "temporal_net", "prompt_learner", "temporal_net_body", "project_fc", "temporal_net_skeleton"] # THÊM MỚI
     print('\nTrainable parameters:')
     for name, param in model.named_parameters():
         if any(keyword in name for keyword in trainable_params_keywords):
@@ -40,11 +40,7 @@ def build_model(args: argparse.Namespace, input_text: list) -> torch.nn.Module:
 
 def get_class_info(args: argparse.Namespace) -> Tuple[list, list]:
     """
-    根据数据集和文本类型获取 class_names 和 input_text（用于生成 CLIP 模型文本输入）。
-
-    Returns:
-        class_names: 类别名称，用于混淆矩阵等
-        input_text: 输入文本，用于传入模型
+    (Giữ nguyên như file gốc)
     """
     if args.dataset == "RAER":
         class_names = ['Neutrality', 'Enjoyment', 'Confusion', 'Fatigue', 'Distraction.']
@@ -69,19 +65,23 @@ def get_class_info(args: argparse.Namespace) -> Tuple[list, list]:
 def build_dataloaders(args: argparse.Namespace) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]: 
     train_annotation_file_path = args.train_annotation
     test_annotation_file_path = args.test_annotation
-    
+
     print("Loading train data...")
+    # === CẬP NHẬT: Thêm bounding_box_skeleton ===
     train_data = train_data_loader(
         list_file=train_annotation_file_path, num_segments=args.num_segments,
         duration=args.duration, image_size=args.image_size,dataset_name=args.dataset,
-        bounding_box_face=args.bounding_box_face,bounding_box_body=args.bounding_box_body
+        bounding_box_face=args.bounding_box_face, bounding_box_body=args.bounding_box_body,
+        bounding_box_skeleton=args.bounding_box_skeleton # MỚI
     )
     
     print("Loading test data...")
+    # === CẬP NHẬT: Thêm bounding_box_skeleton ===
     test_data = test_data_loader(
         list_file=test_annotation_file_path, num_segments=args.num_segments,
         duration=args.duration, image_size=args.image_size,
-        bounding_box_face=args.bounding_box_face,bounding_box_body=args.bounding_box_body
+        bounding_box_face=args.bounding_box_face, bounding_box_body=args.bounding_box_body,
+        bounding_box_skeleton=args.bounding_box_skeleton # MỚI
     )
 
     print("Creating DataLoader instances...")

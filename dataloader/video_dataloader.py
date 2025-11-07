@@ -30,7 +30,8 @@ class VideoRecord(object):
         return int(self._data[2])
 
 class VideoDataset(data.Dataset):
-    def __init__(self, list_file, num_segments, duration, mode, transform, image_size,bounding_box_face,bounding_box_body):
+    # === CẬP NHẬT: Thêm bounding_box_skeleton vào __init__ ===
+    def __init__(self, list_file, num_segments, duration, mode, transform, image_size, bounding_box_face, bounding_box_body, bounding_box_skeleton):
         self.list_file = list_file
         self.duration = duration
         self.num_segments = num_segments
@@ -39,21 +40,28 @@ class VideoDataset(data.Dataset):
         self.mode = mode
         self.bounding_box_face = bounding_box_face
         self.bounding_box_body = bounding_box_body
+        self.bounding_box_skeleton = bounding_box_skeleton # MỚI
+        
         self._read_sample()
         self._parse_list()
         self._read_boxs()
         self._read_body_boxes()
+        self._read_skeleton_boxes() # MỚI
 
     def _read_boxs(self):
         with open(self.bounding_box_face, 'r') as f:
             self.boxs = json.load(f)
-
-
     
     def _read_body_boxes(self):
         with open(self.bounding_box_body, 'r') as f:
             self.body_boxes = json.load(f)
 
+    # === THÊM MỚI: Hàm đọc file JSON khung xương ===
+    def _read_skeleton_boxes(self):
+        # Giả sử cấu trúc file skeleton tương tự file face
+        with open(self.bounding_box_skeleton, 'r') as f:
+            self.skeleton_boxes = json.load(f)
+    # ============================================
 
     def _cv2pil(self,im_cv):
         cv_img_rgb = cv2.cvtColor(im_cv, cv2.COLOR_BGR2RGB)
@@ -107,11 +115,7 @@ class VideoDataset(data.Dataset):
         tmp = [x.strip().split(' ') for x in open(self.list_file)]
         self.sample_list = [item for item in tmp]
 
-
     def _parse_list(self):
-        #
-        # Data Form: [video_id, num_frames, class_idx]
-        #
         self.video_list = [VideoRecord(item) for item in self.sample_list]  
         print(('video number:%d' % (len(self.video_list))))
 
@@ -153,6 +157,8 @@ class VideoDataset(data.Dataset):
         random_num = random.random()
         images = list()
         images_face = list()
+        images_skeleton = list() # MỚI: List cho ảnh skeleton
+        
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.duration):
@@ -160,6 +166,7 @@ class VideoDataset(data.Dataset):
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
 
+                # 1. Lấy Face Box
                 if parent_dir in self.boxs:
                     if file_name in self.boxs[parent_dir]:
                         box = self.boxs[parent_dir][file_name]
@@ -168,6 +175,7 @@ class VideoDataset(data.Dataset):
                 else:
                     box = None
 
+                # 2. Lấy Body Box
                 img_pil = Image.open(img_path)
                 img_pil_face = Image.open(img_path)
                 body_box_path = parent_dir
@@ -178,16 +186,32 @@ class VideoDataset(data.Dataset):
                 else:
                     img_pil_body = img_pil
 
+                # === 3. THÊM MỚI: Lấy Skeleton Box ===
+                if parent_dir in self.skeleton_boxes:
+                    if file_name in self.skeleton_boxes[parent_dir]:
+                        skeleton_box = self.skeleton_boxes[parent_dir][file_name]
+                    else:
+                        skeleton_box = None
+                else:
+                    skeleton_box = None
+                
+                img_pil_skeleton = Image.open(img_path)
+                # Giả định skeleton_box là [l, u, r, l] và dùng hàm _face_detect (mode='face') để crop
+                # Nếu skeleton_box = None, nó sẽ trả về ảnh gốc (giống body)
+                seg_imgs_skeleton = [self._face_detect(img_pil_skeleton, skeleton_box, margin=0, mode='face')]
+                # =======================================
+
                 img_cv_body = self._pil2cv(img_pil_body)
                 img_cv_body, r = self._resize_image(img_cv_body, self.image_size, self.image_size)
                 img_pil_body = self._cv2pil(img_cv_body)
                 seg_imgs = [img_pil_body]
                 
-
                 seg_imgs_face = [self._face_detect(img_pil_face,box,margin=20,mode='face')]
 
                 images.extend(seg_imgs)
                 images_face.extend(seg_imgs_face)
+                images_skeleton.extend(seg_imgs_skeleton) # MỚI
+                
                 if p < record.num_frames - 1:
                     p += 1
 
@@ -196,13 +220,20 @@ class VideoDataset(data.Dataset):
 
         images_face = self.transform(images_face)
         images_face = torch.reshape(images_face, (-1, 3, self.image_size, self.image_size))
-        return images_face,images,record.label-1
+        
+        # === THÊM MỚI: Xử lý tensor skeleton ===
+        images_skeleton = self.transform(images_skeleton)
+        images_skeleton = torch.reshape(images_skeleton, (-1, 3, self.image_size, self.image_size))
+        # =======================================
+
+        # === CẬP NHẬT: Trả về 3 ảnh ===
+        return images_face, images, images_skeleton, record.label-1
 
     def __len__(self):
         return len(self.video_list)
 
-
-def train_data_loader(list_file, num_segments, duration, image_size,dataset_name,bounding_box_face,bounding_box_body):
+# === CẬP NHẬT: Thêm bounding_box_skeleton ===
+def train_data_loader(list_file, num_segments, duration, image_size, dataset_name, bounding_box_face, bounding_box_body, bounding_box_skeleton):
     if dataset_name == "RAER":
          train_transforms = torchvision.transforms.Compose([
             RandomRotation(4),
@@ -219,12 +250,13 @@ def train_data_loader(list_file, num_segments, duration, image_size,dataset_name
                               transform=train_transforms,
                               image_size=image_size,
                               bounding_box_face=bounding_box_face,
-                              bounding_box_body=bounding_box_body
+                              bounding_box_body=bounding_box_body,
+                              bounding_box_skeleton=bounding_box_skeleton # MỚI
                               )
     return train_data
 
-
-def test_data_loader(list_file, num_segments, duration, image_size,bounding_box_face,bounding_box_body):
+# === CẬP NHẬT: Thêm bounding_box_skeleton ===
+def test_data_loader(list_file, num_segments, duration, image_size, bounding_box_face, bounding_box_body, bounding_box_skeleton):
     
     test_transform = torchvision.transforms.Compose([GroupResize(image_size),
                                                      Stack(),
@@ -237,6 +269,7 @@ def test_data_loader(list_file, num_segments, duration, image_size,bounding_box_
                              transform=test_transform,
                              image_size=image_size,
                              bounding_box_face=bounding_box_face,
-                             bounding_box_body=bounding_box_body
+                             bounding_box_body=bounding_box_body,
+                             bounding_box_skeleton=bounding_box_skeleton # MỚI
                              )
     return test_data
