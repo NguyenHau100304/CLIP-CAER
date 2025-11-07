@@ -16,7 +16,7 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import warnings
-from models.clip import clip
+from clip import clip
 from dataloader.video_dataloader import train_data_loader, test_data_loader
 from models.Generate_Model import GenerateModel
 from models.Text import *
@@ -56,9 +56,6 @@ path_group.add_argument('--test-annotation', type=str, default='RAER/test_abs.tx
 path_group.add_argument('--clip-path', type=str, default='/media/D/zlm/code/single_four/models/ViT-B-32.pt', help='Path to the pretrained CLIP model.')
 path_group.add_argument('--bounding-box-face', type=str, default='/media/F/FERDataset/AER-DB/RAER/bounding_box/face_abs.json')
 path_group.add_argument('--bounding-box-body', type=str, default="/media/F/FERDataset/AER-DB/RAER/bounding_box/body_abs.json")
-# === THÊM MỚI: Đường dẫn đến file JSON của khung xương ===
-path_group.add_argument('--bounding-box-skeleton', type=str, default="/path/to/your/skeleton_abs.json", help="Path to skeleton bounding box JSON file.")
-# =======================================================
 
 # --- Training Control ---
 train_group = parser.add_argument_group('Training Control', 'Parameters to control the training process')
@@ -156,17 +153,13 @@ def run_training(args: argparse.Namespace) -> None:
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss().to(args.device)
-    
-    # === CẬP NHẬT: Thêm tham số của temporal_net_skeleton vào optimizer ===
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},
-        {"params": model.temporal_net_skeleton.parameters(), "lr": args.lr}, # MỚI
         {"params": model.image_encoder.parameters(), "lr": args.lr_image_encoder},
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
         {"params": model.project_fc.parameters(), "lr": args.lr_image_encoder}
     ], momentum=args.momentum, weight_decay=args.weight_decay)
-    # ======================================================================
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=args.gamma)
     

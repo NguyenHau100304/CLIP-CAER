@@ -145,15 +145,12 @@ def computer_uar_war(val_loader, model, device, class_names, log_confusion_matri
     all_targets = []
     
     with torch.no_grad():
-        # === CẬP NHẬT: Giải nén 3 tensor ảnh ===
-        for i, (images_face, images_body, images_skeleton, target) in enumerate(tqdm.tqdm(val_loader, desc="Calculating Metrics")):
+        for i, (images_face, images_body, target) in enumerate(tqdm.tqdm(val_loader, desc="Calculating Metrics")):
             images_face = images_face.to(device)
             images_body = images_body.to(device)
-            images_skeleton = images_skeleton.to(device) # MỚI
             target = target.to(device)
 
-            # === CẬP NHẬT: Truyền 3 ảnh vào model ===
-            output = model(images_face, images_body, images_skeleton)
+            output = model(images_face, images_body)
             predicted = output.argmax(dim=1)
             
             all_predicted.append(predicted.cpu())
@@ -162,10 +159,11 @@ def computer_uar_war(val_loader, model, device, class_names, log_confusion_matri
     all_predicted = torch.cat(all_predicted, 0)
     all_targets = torch.cat(all_targets, 0)
 
-    # (Phần còn lại của hàm giữ nguyên)
+
     correct = (all_predicted == all_targets).sum().item()
     war = 100. * correct / len(val_loader.dataset)
     
+
     _confusion_matrix = confusion_matrix(all_targets.numpy(), all_predicted.numpy())
     np.set_printoptions(precision=4)
 
