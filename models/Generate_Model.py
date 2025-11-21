@@ -23,7 +23,6 @@ class GenerateModel(nn.Module):
             param.requires_grad = False
             
         # Lấy feature dimension (ví dụ ViT-B/32 là 512, ViT-L/14 là 768)
-        self.feature_dim = self.clip_model.visual.output_dim
         
         # 2. Khởi tạo Prompt Learner và Text Encoder (Xử lý văn bản)
         self.prompt_learner = PromptLearner(input_text, clip_model, args)
@@ -33,31 +32,32 @@ class GenerateModel(nn.Module):
         # 3. Lớp S-ATT Số 1: Xử lý riêng lẻ Face và Body
         # Lưu ý: Input vào đây là chuỗi features theo thời gian
         self.visual_transformer_stage1 = Temporal_Transformer_Cls(
-            input_dim=self.feature_dim,
-            dim=self.feature_dim,
+            num_patches=16,
+            input_dim=512,
             depth=args.temporal_layers,      # Số lớp encoder (ví dụ: 4)
             heads=8,      # Số head attention (ví dụ: 8)
-            mlp_dim=self.feature_dim * 4,
-            dropout=0.1
+            mlp_dim=1024,
+            dropout=0.1,
+            dim_head=64
         )
         
         # 4. Type Embedding: Để phân biệt đâu là Face (0), đâu là Body (1)
         # Kích thước (2, feature_dim)
-        self.type_embedding = nn.Embedding(2, self.feature_dim)
+        self.type_embedding = nn.Embedding(2, 512)
         
         # 5. Lớp S-ATT Số 2: Fusion Transformer (Cái mới thêm vào)
         # Lớp này sẽ học sự tương quan giữa Face và Body sau khi đã cộng gộp
         self.visual_transformer_stage2 = Temporal_Transformer_Cls(
-            input_dim=self.feature_dim,
-            dim=self.feature_dim,
+            input_dim=512,
             depth=args.temporal_layers,  # Có thể dùng độ sâu giống hoặc khác stage 1
             heads=8,
-            mlp_dim=self.feature_dim * 4,
-            dropout=0.1
+            mlp_dim=1024,
+            dropout=0.1,
+            dim_head=64
         )
         
         # Normalization layer cuối cùng trước khi tính similarity
-        self.ln_post = nn.LayerNorm(self.feature_dim)
+        self.ln_post = nn.LayerNorm(512)
 
     def forward(self, image, text=None):
         """
