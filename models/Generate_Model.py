@@ -37,7 +37,6 @@ class GenerateModel(nn.Module):
             depth=args.temporal_layers,      # Số lớp encoder (ví dụ: 4)
             heads=8,      # Số head attention (ví dụ: 8)
             mlp_dim=1024,
-            dropout=0.1,
             dim_head=64
         )
         
@@ -48,11 +47,11 @@ class GenerateModel(nn.Module):
         # 5. Lớp S-ATT Số 2: Fusion Transformer (Cái mới thêm vào)
         # Lớp này sẽ học sự tương quan giữa Face và Body sau khi đã cộng gộp
         self.visual_transformer_stage2 = Temporal_Transformer_Cls(
+            num_patches=16, 
             input_dim=512,
             depth=args.temporal_layers,  # Có thể dùng độ sâu giống hoặc khác stage 1
             heads=8,
             mlp_dim=1024,
-            dropout=0.1,
             dim_head=64
         )
         
