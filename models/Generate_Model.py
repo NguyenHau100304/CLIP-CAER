@@ -16,7 +16,7 @@ class GenerateModel(nn.Module):
         
         # 1. Load CLIP Backbone
         # (Giả sử clip.load trả về model và preprocess, ta chỉ cần model)
-        self.clip_model, _ = clip.load(args.backbone, device='cpu', jit=False)
+        self.clip_model = clip_model
         
         # Freeze image encoder của CLIP (thường làm vậy để tiết kiệm bộ nhớ và giữ feature tốt)
         for param in self.clip_model.visual.parameters():
