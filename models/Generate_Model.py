@@ -35,8 +35,8 @@ class GenerateModel(nn.Module):
         self.visual_transformer_stage1 = Temporal_Transformer_Cls(
             input_dim=self.feature_dim,
             dim=self.feature_dim,
-            depth=args.transformer_depth,      # Số lớp encoder (ví dụ: 4)
-            heads=args.transformer_heads,      # Số head attention (ví dụ: 8)
+            depth=args.temporal_layers,      # Số lớp encoder (ví dụ: 4)
+            heads=8,      # Số head attention (ví dụ: 8)
             mlp_dim=self.feature_dim * 4,
             dropout=0.1
         )
@@ -50,8 +50,8 @@ class GenerateModel(nn.Module):
         self.visual_transformer_stage2 = Temporal_Transformer_Cls(
             input_dim=self.feature_dim,
             dim=self.feature_dim,
-            depth=args.transformer_depth,  # Có thể dùng độ sâu giống hoặc khác stage 1
-            heads=args.transformer_heads,
+            depth=args.temporal_layers,  # Có thể dùng độ sâu giống hoặc khác stage 1
+            heads=8,
             mlp_dim=self.feature_dim * 4,
             dropout=0.1
         )
