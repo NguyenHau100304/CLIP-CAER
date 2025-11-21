@@ -33,8 +33,10 @@ class GenerateModel(nn.Module):
         ################# Visual Part #################
         # Face Part
         n, t, c, h, w = image_face.shape
+        
         image_face = image_face.contiguous().view(-1, c, h, w)
         image_face_features = self.image_encoder(image_face.type(self.dtype))
+        # 512
         image_face_features = image_face_features.contiguous().view(n, t, -1)
         video_face_features = self.temporal_net(image_face_features)  # (4*512)
         
