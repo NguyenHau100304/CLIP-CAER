@@ -159,7 +159,7 @@ class VideoDataset(data.Dataset):
                 img_path = os.path.join(video_frames_path[p])
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
-
+                print("debug img_path:",file_name)
                 if parent_dir in self.boxs:
                     if file_name in self.boxs[parent_dir]:
                         box = self.boxs[parent_dir][file_name]

@@ -154,11 +154,11 @@ def run_training(args: argparse.Namespace) -> None:
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss().to(args.device)
     optimizer = torch.optim.SGD([
-        {"params": model.prompt_learner.parameters(), "lr": args.lr},
-        {"params": model.visual_transformer_stage1.parameters(), "lr": args.lr},
-        {"params": model.type_embedding.parameters(), "lr": args.lr},
-        {"params": model.visual_transformer_stage2.parameters(), "lr": args.lr},
-        {"params": model.ln_post.parameters(), "lr": args.lr},
+        {"params": model.temporal_net.parameters(), "lr": args.lr},
+        {"params": model.temporal_net_body.parameters(), "lr": args.lr},
+        {"params": model.image_encoder.parameters(), "lr": args.lr_image_encoder},
+        {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
+        {"params": model.project_fc.parameters(), "lr": args.lr_image_encoder}
     ], momentum=args.momentum, weight_decay=args.weight_decay)
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=args.gamma)

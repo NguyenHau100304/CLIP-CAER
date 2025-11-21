@@ -9,7 +9,7 @@ from utils.utils import AverageMeter, ProgressMeter
 
 class Trainer:
     """A class that encapsulates the training and validation logic."""
-    def __init__(self, model, criterion, optimizer, scheduler, device, log_txt_path):
+    def __init__(self, model, criterion, optimizer, scheduler, device,log_txt_path):
         self.model = model
         self.criterion = criterion
         self.optimizer = optimizer
@@ -47,14 +47,8 @@ class Trainer:
                 images_body = images_body.to(self.device)
                 target = target.to(self.device)
 
-                # --- SỬA ĐỔI TẠI ĐÂY ---
-                # Đóng gói face và body thành dictionary để khớp với input của Generate_Model mới
-                input_data = {'face': images_face, 'body': images_body}
-
                 # Forward pass
-                output = self.model(input_data)
-                # -----------------------
-
+                output = self.model(images_face, images_body)
                 loss = self.criterion(output, target)
 
                 if is_train:
@@ -84,13 +78,12 @@ class Trainer:
         war = war_meter.avg # Weighted Average Recall (WAR) is just the overall accuracy
         
         # Unweighted Average Recall (UAR)
-        # Add epsilon to avoid division by zero if a class is missing from target
-        class_acc = cm.diagonal() / (cm.sum(axis=1) + 1e-6) 
+        class_acc = cm.diagonal() / (cm.sum(axis=1) + 1e-6) # Add epsilon to avoid division by zero
         uar = np.nanmean(class_acc) * 100
 
         logging.info(f"{prefix} * WAR: {war:.3f} | UAR: {uar:.3f}")
         with open(self.log_txt_path, 'a') as f:
-            f.write('Current WAR: {war:.3f}'.format(war=war) + '\n') # Sửa typo text log cho đúng (WAR thay vì UAR dòng đầu)
+            f.write('Current UAR: {war:.3f}'.format(war=war) + '\n')
             f.write('Current UAR: {uar:.3f}'.format(uar=uar) + '\n')
         return war, uar, losses.avg, cm
         
