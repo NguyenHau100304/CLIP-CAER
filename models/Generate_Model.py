@@ -3,15 +3,15 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from models.clip import clip
-from models.Temporal_Model import Temporal_Transformer_Cls
-from models.Prompt_Learner import PromptLearner
-from models.Text import TextEncoder
+from models.Temporal_Model import *
+from models.Prompt_Learner import *
+from models.Text import *
 
-class Generate_Model(nn.Module):
-    def __init__(self, args):
-        super(Generate_Model, self).__init__()
+class GenerateModel(nn.Module):
+    def __init__(self, input_text, clip_model, args):
+        super(GenerateModel, self).__init__()
         self.args = args
-        
+        self.input_text = input_text
         print(f"Đang khởi tạo mô hình với CLIP Backbone: {args.backbone}...")
         
         # 1. Load CLIP Backbone
@@ -26,9 +26,10 @@ class Generate_Model(nn.Module):
         self.feature_dim = self.clip_model.visual.output_dim
         
         # 2. Khởi tạo Prompt Learner và Text Encoder (Xử lý văn bản)
-        self.prompt_learner = PromptLearner(args, self.clip_model)
-        self.text_encoder = TextEncoder(self.clip_model)
-        
+        self.prompt_learner = PromptLearner(input_text, clip_model, args)
+        self.tokenized_prompts = self.prompt_learner.tokenized_prompts
+        self.text_encoder = TextEncoder(clip_model)
+        self.dtype = clip_model.dtype
         # 3. Lớp S-ATT Số 1: Xử lý riêng lẻ Face và Body
         # Lưu ý: Input vào đây là chuỗi features theo thời gian
         self.visual_transformer_stage1 = Temporal_Transformer_Cls(
