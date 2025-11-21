@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-from clip import clip
-from clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from models.clip import clip
+from models.clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
 _tokenizer = _Tokenizer()
 
 class TextEncoder(nn.Module):
