@@ -12,7 +12,7 @@ class GenerateModel(nn.Module):
         super(GenerateModel, self).__init__()
         self.args = args
         self.input_text = input_text
-        print(f"Đang khởi tạo mô hình với CLIP Backbone: {args.backbone}...")
+        #print(f"Đang khởi tạo mô hình với CLIP Backbone: {args.backbone}...")
         
         # 1. Load CLIP Backbone
         # (Giả sử clip.load trả về model và preprocess, ta chỉ cần model)
