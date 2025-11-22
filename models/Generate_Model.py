@@ -58,7 +58,7 @@ class GenerateModel(nn.Module):
         # Normalization layer cuối cùng trước khi tính similarity
         self.ln_post = nn.LayerNorm(512)
 
-    def forward(self, image_face, image_body):
+    def forward(self, imgs, text=None):
         """
         image: dict chứa 'face' và 'body'. Shape mỗi cái: (Batch, Time, C, H, W)
                hoặc nếu đã qua dataloader xử lý thì có thể là (Batch, Time, 3, 224, 224)
@@ -78,7 +78,7 @@ class GenerateModel(nn.Module):
         # Input shape: (B, T, C, H, W) -> Cần gộp B và T để đưa qua CLIP
         
         # -- Xử lý FACE --
-        face_imgs = image_face # (B, T, C, H, W)
+        face_imgs = imgs['face'] # (B, T, C, H, W)
         b, t, c, h, w = face_imgs.size()
         face_imgs = face_imgs.view(-1, c, h, w) # (B*T, C, H, W)
         
@@ -87,7 +87,7 @@ class GenerateModel(nn.Module):
         face_features_raw = face_features_raw.view(b, t, -1).float() # (B, T, feature_dim)
 
         # -- Xử lý BODY --
-        body_imgs = image_body # (B, T, C, H, W)
+        body_imgs = imgs['body'] # (B, T, C, H, W)
         body_imgs = body_imgs.view(-1, c, h, w)
         
         with torch.no_grad():
