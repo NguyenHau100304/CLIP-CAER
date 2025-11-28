@@ -228,7 +228,7 @@ def run_training(args: argparse.Namespace) -> None:
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
         {"params": model.visual_transformer_stage1.parameters(), "lr": args.lr},
         {"params": model.type_embedding.parameters(), "lr": args.lr},
-        {"params": model.visual_transformer_stage2.parameters(), "lr": args.lr},
+        {"params": model.fusion_net.parameters(), "lr": args.lr},
         {"params": model.ln_post.parameters(), "lr": args.lr_image_encoder},
     ], momentum=args.momentum, weight_decay=args.weight_decay)
 

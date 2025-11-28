@@ -62,8 +62,6 @@ class GenerateModel(nn.Module):
         # CLS Token cho tầng Fusion
         self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
         
-        # Normalization layer cuối cùng
-        self.ln_post = nn.LayerNorm(512)
 
         # --- KHỞI TẠO TRỌNG SỐ ---
         # Áp dụng khởi tạo chuẩn (Truncated Normal) cho các lớp mới thêm vào
