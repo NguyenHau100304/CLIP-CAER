@@ -83,48 +83,33 @@ class Transformer(nn.Module):
 ###########################################################
 #############      output = class tokens      #############
 ###########################################################
+# ... (Giữ nguyên các class GELU, Residual, PreNorm, FeedForward, Attention, Transformer ở trên) ...
+
 class Temporal_Transformer_Cls(nn.Module):
     def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
         super().__init__()
         dropout = 0.1
-        self.num_patches = int(num_patches) # Ép kiểu int
-        self.input_dim = int(input_dim)     # Ép kiểu int
+        # Ép kiểu int để tránh lỗi với randn
+        self.num_patches = int(num_patches)
+        self.input_dim = int(input_dim)
         
-        # Token đại diện cho cả chuỗi (Class Token)
-        # Sửa lỗi ở đây: đảm bảo size là tuple of ints
         self.cls_token = nn.Parameter(torch.randn(1, 1, self.input_dim))
-        
-        # Positional Embedding (cộng thêm 1 cho CLS token)
-        # Sửa lỗi ở đây: num_patches + 1 cũng phải là int
         self.pos_embedding = nn.Parameter(torch.randn(1, self.num_patches + 1, self.input_dim))
         
         self.temporal_transformer = Transformer(self.input_dim, depth, heads, dim_head, mlp_dim, dropout)
 
     def forward(self, x, return_sequence=False):
-        """
-        Args:
-            x: Input tensor (Batch, Tokens, Dim)
-            return_sequence: 
-                - True: Trả về chuỗi features gốc (bỏ CLS token) -> Dùng cho giai đoạn fusion
-                - False: Trả về CLS token -> Dùng cho output cuối cùng
-        """
         b, n, _ = x.shape
         
-        # 1. Gắn thêm CLS token vào đầu chuỗi
         cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
         x = torch.cat((cls_tokens, x), dim=1)
         
-        # 2. Cộng Positional Embedding
-        # Cắt pos_embedding theo chiều dài thực tế n+1 (phòng trường hợp n thay đổi)
+        # Cộng Pos Embedding (cắt đúng chiều dài n+1)
         x = x + self.pos_embedding[:, :(n + 1)]
         
-        # 3. Qua Transformer
         x = self.temporal_transformer(x)
         
-        # 4. Xử lý đầu ra tùy theo mục đích
         if return_sequence:
-            # Trả về chuỗi features (B, N, D), bỏ qua CLS token ở vị trí 0
             return x[:, 1:]
         else:
-            # Trả về CLS token (B, D) đại diện cho toàn bộ chuỗi
             return x[:, 0]
