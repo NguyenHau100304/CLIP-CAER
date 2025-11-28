@@ -32,31 +32,39 @@ def setup_environment(args):
 def training_stage2():
     # 1. Cấu hình Argument (Copy từ main cũ để model build giống hệt)
     parser = argparse.ArgumentParser()
-    # --- Các tham số bắt buộc phải GIỐNG HỆT Stage 1 ---
-    parser.add_argument('--dataset', default='RAER')
-    parser.add_argument('--root-dir', default='/kaggle/input/raer-enhanced/RAER')
-    parser.add_argument('--train-annotation', default='/kaggle/working/CLIP-CAER/annotation/train.txt')
-    parser.add_argument('--test-annotation', default='/kaggle/working/CLIP-CAER/annotation/test.txt')
-    parser.add_argument('--clip-path', default='ViT-B/32')
-    parser.add_argument('--bounding-box-face', default='/kaggle/working/CLIP-CAER/bounding_box/face.json')
-    parser.add_argument('--bounding-box-body', default='/kaggle/working/CLIP-CAER/bounding_box/body.json')
-    parser.add_argument('--text-type', default='class_descriptor')
+    # --- CÁC THAM SỐ CẤU HÌNH MODEL (PHẢI KHỚP TUYỆT ĐỐI VỚI STAGE 1) ---
+    parser.add_argument('--dataset', type=str, default='RAER')
+    parser.add_argument('--root-dir', type=str, default='/kaggle/input/raer-enhanced/RAER')
+    parser.add_argument('--train-annotation', type=str, default='/kaggle/working/CLIP-CAER/annotation/train.txt')
+    parser.add_argument('--test-annotation', type=str, default='/kaggle/working/CLIP-CAER/annotation/test.txt')
+    parser.add_argument('--clip-path', type=str, default='ViT-B/32')
+    parser.add_argument('--bounding-box-face', type=str, default='/kaggle/working/CLIP-CAER/bounding_box/face.json')
+    parser.add_argument('--bounding-box-body', type=str, default='/kaggle/working/CLIP-CAER/bounding_box/body.json')
+    
+    # Text & Context settings
+    parser.add_argument('--text-type', type=str, default='class_descriptor')
     parser.add_argument('--contexts-number', type=int, default=8)
-    parser.add_argument('--class-token-position', default='end')
-    parser.add_argument('--class-specific-contexts', default=True)
-    parser.add_argument('--load_and_tune_prompt_learner', default=True)
-    parser.add_argument('--temporal-layers', type=int, default=4) # Lưu ý: Phải khớp với stage 1
+    parser.add_argument('--class-token-position', type=str, default='end')
+    
+    # --- ĐIỂM SỬA QUAN TRỌNG TẠI ĐÂY ---
+    parser.add_argument('--class-specific-contexts', type=str, default='True') # Phải là String 'True'
+    parser.add_argument('--load_and_tune_prompt_learner', type=str, default='True') # Phải là String 'True'
+    # -----------------------------------
+
+    parser.add_argument('--temporal-layers', type=int, default=4)
     parser.add_argument('--num-segments', type=int, default=16)
     parser.add_argument('--duration', type=int, default=1)
     parser.add_argument('--image-size', type=int, default=224)
-    # --- Các tham số cho Stage 2 ---
+    
+    # Param chạy Stage 2
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--batch-size', type=int, default=8) # Có thể tăng lên 16/32 vì đã freeze backbone (nhẹ hơn)
+    parser.add_argument('--batch-size', type=int, default=8) 
     parser.add_argument('--workers', type=int, default=4)
-    parser.add_argument('--output-path', default='/kaggle/working/outputs/finetune_result')
+    parser.add_argument('--output-path', type=str, default='/kaggle/working/CLIP-CAER/outputs/finetune_result')
     
     args = parser.parse_args()
+    
     args = setup_environment(args)
 
     if not os.path.exists(args.output_path):
