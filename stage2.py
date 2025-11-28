@@ -8,13 +8,13 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 
-# Import các module (Đảm bảo cấu trúc thư mục đúng)
+# Import các module
 from dataloader.video_dataloader import train_data_loader, test_data_loader
 from trainer import Trainer
 from utils.builders import build_model, get_class_info
 
 # --- CẤU HÌNH ĐƯỜNG DẪN CHECKPOINT ---
-# Thay đổi đường dẫn này trỏ đến file model_best.pth của Stage 1
+# Lưu ý: Kiểm tra kỹ đường dẫn này có tồn tại không
 STAGE1_CHECKPOINT_PATH = '/kaggle/input/raer-thucnghiemchinh/outputs/test-[11-28]-[10:01]/model_best.pth'
 
 def setup_environment(args):
@@ -37,11 +37,11 @@ def training_stage2():
     parser.add_argument('--bounding-box-face', type=str, default='/kaggle/working/CLIP-CAER/bounding_box/face.json')
     parser.add_argument('--bounding-box-body', type=str, default='/kaggle/working/CLIP-CAER/bounding_box/body.json')
     
-    # Text params
+    # Text & Context settings
     parser.add_argument('--text-type', type=str, default='class_descriptor')
     parser.add_argument('--contexts-number', type=int, default=8)
     parser.add_argument('--class-token-position', type=str, default='end')
-    parser.add_argument('--class-specific-contexts', type=str, default='True') # Quan trọng: Giữ nguyên
+    parser.add_argument('--class-specific-contexts', type=str, default='True') 
     parser.add_argument('--load_and_tune_prompt_learner', type=str, default='True')
     
     # Model params
@@ -78,13 +78,11 @@ def training_stage2():
     if os.path.isfile(STAGE1_CHECKPOINT_PATH):
         checkpoint = torch.load(STAGE1_CHECKPOINT_PATH, map_location=args.device)
         state_dict = checkpoint['state_dict']
-        # Xử lý prefix 'module.' nếu có
         new_state_dict = {}
         for k, v in state_dict.items():
             name = k[7:] if k.startswith('module.') else k
             new_state_dict[name] = v
         
-        # Load (strict=False để tránh lỗi nhỏ nếu có sự khác biệt version, nhưng về cơ bản nên khớp)
         model.load_state_dict(new_state_dict, strict=True)
         print("=> Loaded checkpoint successfully.")
     else:
@@ -97,8 +95,7 @@ def training_stage2():
     trainable_count = 0
     
     for name, param in model.named_parameters():
-        # Chỉ train Prompt Learner (đại diện cho Classifier trong kiến trúc này)
-        # Hoặc train thêm Fusion Net nếu muốn tinh chỉnh nhẹ phần hình ảnh
+        # Unfreeze Prompt Learner để cân bằng lại Class Bias
         if "prompt_learner" in name: 
             param.requires_grad = True
             trainable_count += 1
@@ -112,13 +109,15 @@ def training_stage2():
     # 4. Optimizer (Chỉ chứa tham số unfreeze)
     optimizer_ft = torch.optim.SGD(
         filter(lambda p: p.requires_grad, model.parameters()), 
-        lr=0.0001, # LR nhỏ để tinh chỉnh
+        lr=0.0001, # LR nhỏ
         momentum=0.9, 
         weight_decay=1e-4
     )
 
     # 5. Dữ liệu chuẩn (Shuffle=True, Không Sampler)
     print("=> Building Standard DataLoader...")
+    
+    # Train Loader
     train_dataset = train_data_loader(
         list_file=args.train_annotation,
         num_segments=args.num_segments,
@@ -128,17 +127,16 @@ def training_stage2():
         bounding_box_face=args.bounding_box_face,
         bounding_box_body=args.bounding_box_body
     )
-    
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,       # QUAN TRỌNG: Shuffle để học phân phối thực
+        shuffle=True,       # Shuffle=True để học phân phối thực tế
         num_workers=args.workers,
         pin_memory=True
     )
     
-    # Val Loader
-    _, val_loader = build_dataloaders(args) # Hàm helper trong main.py hoặc builders
+    # Val Loader - Sử dụng hàm helper bên dưới
+    _, val_loader = build_dataloaders(args)
 
     # 6. Loss chuẩn (Không trọng số)
     criterion = nn.CrossEntropyLoss().to(args.device)
@@ -159,20 +157,9 @@ def training_stage2():
             'best_acc': val_uar,
         }, os.path.join(args.output_path, f'model_ft_epoch{epoch}.pth'))
 
-# Helper function để lấy val loader nếu chưa import được từ utils
+# Helper function sửa lỗi: Gọi trực tiếp test_data_loader mà không cần định nghĩa transform
 def build_dataloaders(args):
-    # (Copy logic từ main.py nếu cần, hoặc import)
-    from dataloader.video_dataloader import test_data_loader
-    # from torchvision import transforms
-    from dataloader import video_transform
-    
-    test_transform = video_transform.Compose([
-        video_transform.Resize((224, 224)),
-        video_transform.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        video_transform.Stack(),
-        video_transform.ToTorchFormatTensor()
-    ])
-    
+    # test_data_loader tự xử lý transform nội bộ
     val_dataset = test_data_loader(
         list_file=args.test_annotation,
         num_segments=args.num_segments,
