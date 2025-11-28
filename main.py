@@ -152,7 +152,17 @@ def run_training(args: argparse.Namespace) -> None:
     print("=> Dataloaders built successfully.")
 
     # Loss and optimizer
-    criterion = nn.CrossEntropyLoss().to(args.device)
+    samples_per_cls = [1383, 129, 30, 157, 422]
+    # Công thức: weight = tổng_mẫu / mẫu_lớp
+    weights = [sum(samples_per_cls) / x for x in samples_per_cls]
+    
+    # Chuyển sang Tensor GPU
+    class_weights = torch.FloatTensor(weights).to(args.device)
+    print(f"DEBUG: Class Weights: {class_weights}") # In ra để kiểm tra
+    
+    # 2. Áp dụng vào hàm Loss
+    # Điều này ép mô hình: "Nếu đoán sai Class 3, mày bị phạt gấp 46 lần đoán sai Class 1"
+    criterion = nn.CrossEntropyLoss(weight=class_weights).to(args.device)
     optimizer = torch.optim.SGD([
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
         {"params": model.visual_transformer_stage1.parameters(), "lr": args.lr},
