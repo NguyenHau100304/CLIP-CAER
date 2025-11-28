@@ -65,21 +65,21 @@ class GenerateModel(nn.Module):
 
         # --- KHỞI TẠO TRỌNG SỐ ---
         # Áp dụng khởi tạo chuẩn (Truncated Normal) cho các lớp mới thêm vào
-        self.apply(self._init_weights)
+        #self.apply(self._init_weights)
 
-    def _init_weights(self, m):
-        # Hàm khởi tạo trọng số giống ViT/BERT để tránh Mode Collapse
-        if isinstance(m, nn.Linear):
-            nn.init.trunc_normal_(m.weight, std=0.02)
-            if isinstance(m, nn.Linear) and m.bias is not None:
-                nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm):
-            nn.init.constant_(m.bias, 0)
-            nn.init.constant_(m.weight, 1.0)
-        elif isinstance(m, nn.Embedding):
-            nn.init.trunc_normal_(m.weight, std=0.02)
-        elif isinstance(m, nn.Parameter): # Cho cls_token
-             nn.init.trunc_normal_(m, std=0.02)
+    # def _init_weights(self, m):
+    #     # Hàm khởi tạo trọng số giống ViT/BERT để tránh Mode Collapse
+    #     if isinstance(m, nn.Linear):
+    #         nn.init.trunc_normal_(m.weight, std=0.02)
+    #         if isinstance(m, nn.Linear) and m.bias is not None:
+    #             nn.init.constant_(m.bias, 0)
+    #     elif isinstance(m, nn.LayerNorm):
+    #         nn.init.constant_(m.bias, 0)
+    #         nn.init.constant_(m.weight, 1.0)
+    #     elif isinstance(m, nn.Embedding):
+    #         nn.init.trunc_normal_(m.weight, std=0.02)
+    #     elif isinstance(m, nn.Parameter): # Cho cls_token
+    #          nn.init.trunc_normal_(m, std=0.02)
 
     def forward(self, imgs, text=None):
         # --- A. Xử lý Text ---
