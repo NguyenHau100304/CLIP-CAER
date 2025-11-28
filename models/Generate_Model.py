@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from models.Temporal_Model import Temporal_Transformer_Cls
 from models.Prompt_Learner import PromptLearner
-from models.Text import TextEncoder
+from models.Prompt_Learner import TextEncoder
 
 class GatedFusion(nn.Module):
     """
