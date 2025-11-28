@@ -55,12 +55,19 @@ class Trainer:
                 output = self.model(input_data)
                 # -----------------------
 
+                # --- Gradient Accumulation ---
+                # Giả lập Batch Size = 8 * 4 = 32
+                accumulation_steps = 4 
                 loss = self.criterion(output, target)
+                loss = loss / accumulation_steps # Chia nhỏ loss
 
                 if is_train:
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    self.optimizer.step()
+                    loss.backward() # Chỉ tính gradient, chưa cập nhật ngay
+                    
+                    # Chỉ cập nhật trọng số sau mỗi 'accumulation_steps'
+                    if (i + 1) % accumulation_steps == 0:
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
 
                 # Record metrics
                 preds = output.argmax(dim=1)
