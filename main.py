@@ -24,6 +24,7 @@ from trainer import Trainer
 from utils.loss import *
 from utils.utils import *
 from utils.builders import *
+from torch.utils.data import WeightedRandomSampler, DataLoader
 
 # Ignore specific warnings (for cleaner output)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -148,7 +149,63 @@ def run_training(args: argparse.Namespace) -> None:
 
     # Load data
     print("=> Building dataloaders...")
-    train_loader, val_loader = build_dataloaders(args)
+    ###train_loader, val_loader = build_dataloaders(args)
+    train_dataset = train_data_loader(
+        list_file=args.train_annotation,
+        num_segments=args.num_segments,
+        duration=args.duration,
+        image_size=args.image_size,
+        dataset_name=args.dataset,
+        bounding_box_face=args.bounding_box_face,
+        bounding_box_body=args.bounding_box_body
+    )
+
+    # 2. Tính toán trọng số cho Sampler
+    print("Đang tính toán trọng số lấy mẫu (Weighted Sampler)...")
+    
+    # Lấy danh sách tất cả label trong tập train
+    # train_dataset.video_list là list các object VideoRecord, mỗi cái có thuộc tính .label (int)
+    # Lưu ý: record.label trong code của bạn có thể là 1-5 hoặc 0-4. 
+    # VideoRecord trả về int(row[2]), thường dataset txt ghi 1-5.
+    all_train_labels = [x.label for x in train_dataset.video_list]
+    
+    # Đếm số lượng: Class 1 (1383), 2 (129), 3 (30), 4 (157), 5 (422)
+    # Giả sử label trong file txt là 0,1,2,3,4. Nếu là 1,2,3,4,5 thì cần trừ 1 khi index
+    
+    class_counts = [1383, 129, 30, 157, 422] 
+    num_samples = sum(class_counts)
+    
+    # Trọng số cho mỗi CLASS (nghịch đảo tần suất)
+    # Class ít xuất hiện -> trọng số cao
+    class_weights = [num_samples / x for x in class_counts]
+    
+    # Trọng số cho từng MẪU (Sample)
+    # Giả sử label dataset của bạn chạy từ 1 đến 5 -> trừ 1 để lấy index 0-4
+    weights_per_sample = [class_weights[label - 1] for label in all_train_labels]
+    
+    # Chuyển sang tensor
+    weights_per_sample = torch.DoubleTensor(weights_per_sample)
+
+    # 3. Tạo Sampler
+    # num_samples: Tổng số mẫu muốn lấy trong 1 epoch (thường bằng len dataset)
+    # replacement=True: Cho phép lấy lặp lại (quan trọng với class ít mẫu)
+    sampler = WeightedRandomSampler(weights_per_sample, len(weights_per_sample), replacement=True)
+
+    # 4. Tạo DataLoader với Sampler
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=False, # QUAN TRỌNG: Khi dùng sampler, shuffle PHẢI là False
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=sampler, # Đưa sampler vào đây
+        drop_last=True
+    )
+    
+    # Val loader giữ nguyên
+    _, val_loader = build_dataloaders(args) # Chỉ lấy val_loader
+
+
     print("=> Dataloaders built successfully.")
 
     # Loss and optimizer
