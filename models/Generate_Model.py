@@ -148,6 +148,5 @@ class GenerateModel(nn.Module):
         
         # Tính Cosine Similarity (Logits)
         # Scale logit bằng logit_scale_exp của CLIP
-        logits = final_visual_features @ text_features.t() / 0.01
-        
+        logits = final_visual_features @ text_features.t() * self.clip_model.logit_scale.exp()
         return logits
