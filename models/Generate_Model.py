@@ -41,16 +41,24 @@ class GenerateModel(nn.Module):
         
         # 5. Lớp S-ATT Số 2: Fusion Transformer
         # --- QUAN TRỌNG: Thêm batch_first=True ---
-        encoderlayer = nn.TransformerEncoderLayer(
-            d_model=512,
-            nhead=8,
-            dim_feedforward=1024,
-            dropout=0.1,
-            activation='gelu',
-            batch_first=True  # <--- BẮT BUỘC PHẢI CÓ
-        )
-        self.visual_transformer_stage2 = nn.TransformerEncoder(encoderlayer, num_layers=3)
+        # encoderlayer = nn.TransformerEncoderLayer(
+        #     d_model=512,
+        #     nhead=8,
+        #     dim_feedforward=1024,
+        #     dropout=0.1,
+        #     activation='gelu',
+        #     batch_first=True  # <--- BẮT BUỘC PHẢI CÓ
+        # )
+        # self.visual_transformer_stage2 = nn.TransformerEncoder(encoderlayer, num_layers=3)
         
+        self.fusion_net = nn.Sequential(
+            nn.Linear(512 * 2, 512), # Input là Face(512) + Body(512)
+            nn.ReLU(),
+            nn.Dropout(0.5), # Dropout cao để chống overfitting trên data ít
+            nn.Linear(512, 512)
+        )
+        self.ln_post = nn.LayerNorm(512)
+
         # CLS Token cho tầng Fusion
         self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
         
@@ -101,33 +109,45 @@ class GenerateModel(nn.Module):
         body_features_raw = body_features_raw.view(b, t, -1).float()
 
         # 2. Qua lớp S-ATT Số 1 (Lấy Sequence)
-        face_feat_seq = self.visual_transformer_stage1(face_features_raw, return_sequence=True)
-        body_feat_seq = self.visual_transformer_stage1(body_features_raw, return_sequence=True)
+        # face_feat_seq = self.visual_transformer_stage1(face_features_raw, return_sequence=True)
+        # body_feat_seq = self.visual_transformer_stage1(body_features_raw, return_sequence=True)
         
-        # 3. Cộng Type Embedding
-        device = face_feat_seq.device
-        type_face = torch.zeros((1, 1), dtype=torch.long, device=device)
-        type_body = torch.ones((1, 1), dtype=torch.long, device=device)
+        # # 3. Cộng Type Embedding
+        # device = face_feat_seq.device
+        # type_face = torch.zeros((1, 1), dtype=torch.long, device=device)
+        # type_body = torch.ones((1, 1), dtype=torch.long, device=device)
         
-        # Broadcasting tự động cộng (1,1,D) vào (B,T,D)
-        face_feat_aug = face_feat_seq + self.type_embedding(type_face)
-        body_feat_aug = body_feat_seq + self.type_embedding(type_body)
+        # # Broadcasting tự động cộng (1,1,D) vào (B,T,D)
+        # face_feat_aug = face_feat_seq + self.type_embedding(type_face)
+        # body_feat_aug = body_feat_seq + self.type_embedding(type_body)
         
-        # 4. Fusion (Nối chuỗi)
-        # Input shape: (B, 2*T, D)
-        fused_features = torch.cat([face_feat_aug, body_feat_aug], dim=1)
+        # # 4. Fusion (Nối chuỗi)
+        # # Input shape: (B, 2*T, D)
+        # fused_features = torch.cat([face_feat_aug, body_feat_aug], dim=1)
         
-        # 5. Thêm CLS Token
-        cls_tokens = self.cls_token.expand(b, -1, -1) # (B, 1, D)
-        x = torch.cat((cls_tokens, fused_features), dim=1) # (B, 2*T+1, D)
+        # # 5. Thêm CLS Token
+        # cls_tokens = self.cls_token.expand(b, -1, -1) # (B, 1, D)
+        # x = torch.cat((cls_tokens, fused_features), dim=1) # (B, 2*T+1, D)
 
-        # 6. Qua Transformer Stage 2
-        # Vì đã set batch_first=True, input x có dạng (B, Seq, D) là đúng
-        out = self.visual_transformer_stage2(x)
+        # # 6. Qua Transformer Stage 2
+        # # Vì đã set batch_first=True, input x có dạng (B, Seq, D) là đúng
+        # out = self.visual_transformer_stage2(x)
 
-        # 7. Lấy CLS Output (token đầu tiên)
-        final_visual_features = out[:, 0, :]
+        # # 7. Lấy CLS Output (token đầu tiên)
+        # final_visual_features = out[:, 0, :]
         
+        # 3. Fusion đơn giản (Late Fusion)
+        # Thay vì lấy sequence, ta lấy vector đại diện (mean hoặc cls) từ stage 1 luôn
+        # Sửa stage 1 để trả về vector (return_sequence=False)
+        face_vec = self.visual_transformer_stage1(face_features_raw, return_sequence=False)
+        body_vec = self.visual_transformer_stage1(body_features_raw, return_sequence=False)
+
+        # Nối lại
+        combined = torch.cat([face_vec, body_vec], dim=1) # (B, 1024)
+
+        # Qua mạng Fusion
+        final_visual_features = self.fusion_net(combined)
+
         # 8. Normalize và Output
         final_visual_features = self.ln_post(final_visual_features)
         final_visual_features = final_visual_features / final_visual_features.norm(dim=-1, keepdim=True)
