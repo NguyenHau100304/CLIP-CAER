@@ -3,9 +3,11 @@ from einops import rearrange, repeat
 from torch import nn, einsum
 import math
 
+
 class GELU(nn.Module):
     def forward(self, x):
         return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
 
 class Residual(nn.Module):
     def __init__(self, fn):
@@ -15,22 +17,20 @@ class Residual(nn.Module):
     def forward(self, x, **kwargs):
         return self.fn(x, **kwargs) + x
 
+
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
-        # Đảm bảo dim là int
-        self.norm = nn.LayerNorm(int(dim))
+        self.norm = nn.LayerNorm(dim)
         self.fn = fn
 
     def forward(self, x, **kwargs):
         return self.fn(self.norm(x), **kwargs)
 
+
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.):
         super().__init__()
-        # Đảm bảo các dimension là int
-        dim = int(dim)
-        hidden_dim = int(hidden_dim)
         self.net = nn.Sequential(nn.Linear(dim, hidden_dim),
                                  GELU(),
                                  nn.Dropout(dropout),
@@ -38,16 +38,13 @@ class FeedForward(nn.Module):
                                  nn.Dropout(dropout))
 
     def forward(self, x):
+        # print(self.net(x))
         return self.net(x)
+
 
 class Attention(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
         super().__init__()
-        # Đảm bảo dimension là int
-        dim = int(dim)
-        heads = int(heads)
-        dim_head = int(dim_head)
-        
         inner_dim = dim_head * heads
         project_out = not (heads == 1 and dim_head == dim)
         self.heads = heads
@@ -56,6 +53,10 @@ class Attention(nn.Module):
         self.to_out = nn.Sequential(nn.Linear(inner_dim, dim), nn.Dropout(dropout)) if project_out else nn.Identity()
 
     def forward(self, x):
+        # for name, param in self.named_parameters():
+        #     if 'to_qkv' in name:
+        #         print(param.data)
+
         b, n, _, h = *x.shape, self.heads
         qkv = self.to_qkv(x).chunk(3, dim=-1)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv)
@@ -79,37 +80,138 @@ class Transformer(nn.Module):
             x = attn(x)
             x = ff(x)
         return x
+    
+    
+###########################################################
+############# output = mean of the all tokens #############
+###########################################################
+class Temporal_Transformer_Mean(nn.Module):
+    def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
+        super().__init__()
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
+
+    def forward(self, x):
+        x = x.contiguous().view(-1, self.num_patches, self.input_dim)
+        b, n, _ = x.shape
+        x = x + self.pos_embedding[:, :n]
+        x = self.temporal_transformer(x)
+        x = x.mean(dim=1)
+        return x
 
 ###########################################################
 #############      output = class tokens      #############
 ###########################################################
-# ... (Giữ nguyên các class GELU, Residual, PreNorm, FeedForward, Attention, Transformer ở trên) ...
+class Temporal_Transformer_Cls_v6(nn.Module):
+    def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
+        super().__init__()
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        self.cls_token_face = nn.Parameter(torch.randn(1, 1, input_dim))
+        self.cls_token_body = nn.Parameter(torch.randn(1, 1, input_dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+1, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
+
+    def forward(self,x,tag):  #8,16,512
+        b, n, _ = x.shape
+        if tag == 'face':
+            cls_tokens = repeat(self.cls_token_face, '() n d -> b n d', b=b)
+        else:
+            cls_tokens = repeat(self.cls_token_body, '() n d -> b n d', b=b)
+
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_embedding[:, :(n+1)]
+        x = self.temporal_transformer(x)
+        x = x[:, 0]
+        return x
+    
+class Temporal_Transformer_Cls_v7(nn.Module):
+    def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
+        super().__init__()
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        self.cls_token = nn.Parameter(torch.randn(1, 1, input_dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches//2+1, input_dim))
+        self.pos_embedding_diff = nn.Parameter(torch.randn(1, 2, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
+
+    def forward(self, x):  #8,16,512
+        b, n, _ = x.shape
+        cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
+        x = torch.cat((cls_tokens, x), dim=1)  # 4 33 512
+        # y = self.pos_embedding[:, :(n+1)]
+        pos_embedding_face = self.pos_embedding[:, 1:n+1]+self.pos_embedding_diff[:, 0:1]
+        pos_embedding_body = self.pos_embedding[:, 1:n+1]+self.pos_embedding_diff[:, 1:2]
+        pos_embedding_all = torch.cat((self.pos_embedding[:, 0:1], pos_embedding_face, pos_embedding_body), dim=1)
+        x = x + pos_embedding_all
+        x = self.temporal_transformer(x)
+        x = x[:, 0]
+        # print(self.cls_token)
+        return x
 
 class Temporal_Transformer_Cls(nn.Module):
     def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
         super().__init__()
-        dropout = 0.1
-        # Ép kiểu int để tránh lỗi với randn
-        self.num_patches = int(num_patches)
-        self.input_dim = int(input_dim)
-        
-        self.cls_token = nn.Parameter(torch.randn(1, 1, self.input_dim))
-        self.pos_embedding = nn.Parameter(torch.randn(1, self.num_patches + 1, self.input_dim))
-        
-        self.temporal_transformer = Transformer(self.input_dim, depth, heads, dim_head, mlp_dim, dropout)
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        self.cls_token = nn.Parameter(torch.randn(1, 1, input_dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches+1, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
 
-    def forward(self, x, return_sequence=False):
+    def forward(self, x):  #8,16,512
         b, n, _ = x.shape
-        
         cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
         x = torch.cat((cls_tokens, x), dim=1)
-        
-        # Cộng Pos Embedding (cắt đúng chiều dài n+1)
-        x = x + self.pos_embedding[:, :(n + 1)]
-        
+        # y = self.pos_embedding[:, :(n+1)]
+        x = x + self.pos_embedding[:, :(n+1)]
         x = self.temporal_transformer(x)
+        x = x[:, 0]
+        # print(self.cls_token)
+        return x
+    
+#### 混合人脸特征和上下文特征的关系
+class Temporal_Transformer_Mix(nn.Module):
+    def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
+        super().__init__()
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        # self.cls_token = nn.Parameter(torch.randn(1, 1, input_dim))
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
+
+    def forward(self, x):
+        b, n, _ = x.shape
+        # cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=b)
+        # x = torch.cat((cls_tokens, x), dim=1)
+        ## x直接加上位置编码
+        x = x + self.pos_embedding[:, :n]
+        x = self.temporal_transformer(x)
+        # x = x[:,0]
+        return x
         
-        if return_sequence:
-            return x[:, 1:]
-        else:
-            return x[:, 0]
+
+###########################################################
+#############        output = all tokens      #############
+###########################################################
+class Temporal_Transformer_All(nn.Module):
+    def __init__(self, num_patches, input_dim, depth, heads, mlp_dim, dim_head):
+        super().__init__()
+        dropout=0.1
+        self.num_patches = num_patches
+        self.input_dim = input_dim
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, input_dim))
+        self.temporal_transformer = Transformer(input_dim, depth, heads, dim_head, mlp_dim, dropout)
+
+    def forward(self, x):
+        x = x.contiguous().view(-1, self.num_patches, self.input_dim)
+        b, n, _ = x.shape
+        x = x + self.pos_embedding[:, :n]
+        x = self.temporal_transformer(x)
+        return x

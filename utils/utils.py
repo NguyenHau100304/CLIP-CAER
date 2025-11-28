@@ -149,8 +149,8 @@ def computer_uar_war(val_loader, model, device, class_names, log_confusion_matri
             images_face = images_face.to(device)
             images_body = images_body.to(device)
             target = target.to(device)
-            input_data = {'face': images_face, 'body': images_body}
-            output = model(input_data)
+
+            output = model(images_face, images_body)
             predicted = output.argmax(dim=1)
             
             all_predicted.append(predicted.cpu())

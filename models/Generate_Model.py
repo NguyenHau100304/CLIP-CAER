@@ -1,154 +1,106 @@
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.nn import functional as F
+from models.Temporal_Model import Temporal_Transformer_Cls
+from models.Prompt_Learner import PromptLearner
+from models.Text import TextEncoder
 
-from models.clip import clip
-from models.Temporal_Model import *
-from models.Prompt_Learner import *
-from models.Text import *
+class GatedFusion(nn.Module):
+    """
+    Mô-đun nâng cấp: Tự động học trọng số để kết hợp Face và Body
+    thay vì chỉ nối (concat) đơn thuần.
+    """
+    def __init__(self, input_dim=512, hidden_dim=128):
+        super().__init__()
+        # Mạng học trọng số cổng (Gate)
+        self.gate_net = nn.Sequential(
+            nn.Linear(input_dim * 2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2), # Output 2 giá trị: weight cho face và body
+            nn.Softmax(dim=1)
+        )
+        # Mạng chiếu sau khi gộp
+        self.project_fc = nn.Linear(input_dim, input_dim)
+
+    def forward(self, face_feat, body_feat):
+        # face_feat: (B, 512), body_feat: (B, 512)
+        
+        # 1. Tính toán trọng số dựa trên cả 2 đặc trưng
+        concat = torch.cat([face_feat, body_feat], dim=1) # (B, 1024)
+        weights = self.gate_net(concat) # (B, 2)
+        
+        w_face = weights[:, 0].unsqueeze(1) # (B, 1)
+        w_body = weights[:, 1].unsqueeze(1) # (B, 1)
+        
+        # 2. Tổng có trọng số (Weighted Sum)
+        # Cho phép mô hình "lắng nghe" bên nào quan trọng hơn
+        fused_feat = (face_feat * w_face) + (body_feat * w_body)
+        
+        # 3. Chiếu và chuẩn hóa
+        out = self.project_fc(fused_feat)
+        return out
 
 class GenerateModel(nn.Module):
     def __init__(self, input_text, clip_model, args):
-        super(GenerateModel, self).__init__()
+        super().__init__()
         self.args = args
         self.input_text = input_text
         
-        # 1. Load CLIP Backbone
-        self.clip_model = clip_model
-        
-        # Freeze image encoder của CLIP
-        for param in self.clip_model.visual.parameters():
-            param.requires_grad = False
-            
-        # 2. Khởi tạo Prompt Learner và Text Encoder
+        # 1. CLIP Backbone & Text Encoder (GIỮ NGUYÊN TỪ MÔ HÌNH GỐC)
         self.prompt_learner = PromptLearner(input_text, clip_model, args)
         self.tokenized_prompts = self.prompt_learner.tokenized_prompts
         self.text_encoder = TextEncoder(clip_model)
         self.dtype = clip_model.dtype
-
-        # 3. Lớp S-ATT Số 1: Xử lý riêng lẻ Face và Body
-        self.visual_transformer_stage1 = Temporal_Transformer_Cls(
-            num_patches=16,
-            input_dim=512,
-            depth=args.temporal_layers,
-            heads=8,
-            mlp_dim=1024,
-            dim_head=64
+        self.image_encoder = clip_model.visual
+        
+        # 2. Temporal Models (GIỮ NGUYÊN)
+        # Xử lý Face và Body độc lập
+        self.temporal_net = Temporal_Transformer_Cls(
+            num_patches=16, input_dim=512, depth=args.temporal_layers,
+            heads=8, mlp_dim=1024, dim_head=64
         )
         
-        # 4. Type Embedding: Face (0), Body (1)
-        self.type_embedding = nn.Embedding(2, 512)
-        
-        # 5. Lớp S-ATT Số 2: Fusion Transformer
-        # --- QUAN TRỌNG: Thêm batch_first=True ---
-        # encoderlayer = nn.TransformerEncoderLayer(
-        #     d_model=512,
-        #     nhead=8,
-        #     dim_feedforward=1024,
-        #     dropout=0.1,
-        #     activation='gelu',
-        #     batch_first=True  # <--- BẮT BUỘC PHẢI CÓ
-        # )
-        # self.visual_transformer_stage2 = nn.TransformerEncoder(encoderlayer, num_layers=3)
-        
-        self.fusion_net = nn.Sequential(
-            nn.Linear(512 * 2, 512), # Input là Face(512) + Body(512)
-            nn.ReLU(),
-            nn.Dropout(0.5), # Dropout cao để chống overfitting trên data ít
-            nn.Linear(512, 512)
+        self.temporal_net_body = Temporal_Transformer_Cls(
+            num_patches=16, input_dim=512, depth=args.temporal_layers,
+            heads=8, mlp_dim=1024, dim_head=64
         )
-        self.ln_post = nn.LayerNorm(512)
-
-        # CLS Token cho tầng Fusion
-        self.cls_token = nn.Parameter(torch.randn(1, 1, 512))
         
+        # 3. Fusion Upgrade: Thay Linear đơn giản bằng GatedFusion
+        # self.project_fc = nn.Linear(1024, 512) # <-- Cũ
+        self.fusion_module = GatedFusion(input_dim=512) # <-- Mới
+        
+    def forward(self, image_face, image_body):
+        # --- Visual Part ---
+        
+        # 1. Face Encoding
+        n, t, c, h, w = image_face.shape
+        image_face = image_face.contiguous().view(-1, c, h, w)
+        image_face_features = self.image_encoder(image_face.type(self.dtype))
+        image_face_features = image_face_features.contiguous().view(n, t, -1)
+        video_face_features = self.temporal_net(image_face_features) # (B, 512)
+        
+        # 2. Body Encoding
+        n, t, c, h, w = image_body.shape
+        image_body = image_body.contiguous().view(-1, c, h, w)
+        image_body_features = self.image_encoder(image_body.type(self.dtype))
+        image_body_features = image_body_features.contiguous().view(n, t, -1)
+        video_body_features = self.temporal_net_body(image_body_features) # (B, 512)
 
-        # --- KHỞI TẠO TRỌNG SỐ ---
-        # Áp dụng khởi tạo chuẩn (Truncated Normal) cho các lớp mới thêm vào
-        #self.apply(self._init_weights)
+        # 3. Fusion (NÂNG CẤP)
+        # Thay vì concat cứng, dùng Gated Fusion
+        video_features = self.fusion_module(video_face_features, video_body_features)
+        
+        # Chuẩn hóa (Quan trọng cho CLIP)
+        video_features = video_features / video_features.norm(dim=-1, keepdim=True)
 
-    # def _init_weights(self, m):
-    #     # Hàm khởi tạo trọng số giống ViT/BERT để tránh Mode Collapse
-    #     if isinstance(m, nn.Linear):
-    #         nn.init.trunc_normal_(m.weight, std=0.02)
-    #         if isinstance(m, nn.Linear) and m.bias is not None:
-    #             nn.init.constant_(m.bias, 0)
-    #     elif isinstance(m, nn.LayerNorm):
-    #         nn.init.constant_(m.bias, 0)
-    #         nn.init.constant_(m.weight, 1.0)
-    #     elif isinstance(m, nn.Embedding):
-    #         nn.init.trunc_normal_(m.weight, std=0.02)
-    #     elif isinstance(m, nn.Parameter): # Cho cls_token
-    #          nn.init.trunc_normal_(m, std=0.02)
-
-    def forward(self, imgs, text=None):
-        # --- A. Xử lý Text ---
+        # --- Text Part (Prompt Learning) ---
         prompts = self.prompt_learner()
-        tokenized_prompts = self.prompt_learner.tokenized_prompts
+        tokenized_prompts = self.tokenized_prompts
         text_features = self.text_encoder(prompts, tokenized_prompts)
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-        # --- B. Xử lý Image ---
         
-        # 1. Trích xuất đặc trưng từ CLIP
-        # -- Face --
-        face_imgs = imgs['face']
-        b, t, c, h, w = face_imgs.size()
-        face_imgs = face_imgs.view(-1, c, h, w)
-        with torch.no_grad():
-            face_features_raw = self.clip_model.visual(face_imgs)
-        face_features_raw = face_features_raw.view(b, t, -1).float()
-
-        # -- Body --
-        body_imgs = imgs['body']
-        body_imgs = body_imgs.view(-1, c, h, w)
-        with torch.no_grad():
-            body_features_raw = self.clip_model.visual(body_imgs)
-        body_features_raw = body_features_raw.view(b, t, -1).float()
-
-        # 2. Qua lớp S-ATT Số 1 (Lấy Sequence)
-        # face_feat_seq = self.visual_transformer_stage1(face_features_raw, return_sequence=True)
-        # body_feat_seq = self.visual_transformer_stage1(body_features_raw, return_sequence=True)
+        # --- Similarity ---
+        # Tính Cosine Similarity (Temperature 0.01 như code gốc)
+        output = video_features @ text_features.t() / 0.01
         
-        # # 3. Cộng Type Embedding
-        # device = face_feat_seq.device
-        # type_face = torch.zeros((1, 1), dtype=torch.long, device=device)
-        # type_body = torch.ones((1, 1), dtype=torch.long, device=device)
-        
-        # # Broadcasting tự động cộng (1,1,D) vào (B,T,D)
-        # face_feat_aug = face_feat_seq + self.type_embedding(type_face)
-        # body_feat_aug = body_feat_seq + self.type_embedding(type_body)
-        
-        # # 4. Fusion (Nối chuỗi)
-        # # Input shape: (B, 2*T, D)
-        # fused_features = torch.cat([face_feat_aug, body_feat_aug], dim=1)
-        
-        # # 5. Thêm CLS Token
-        # cls_tokens = self.cls_token.expand(b, -1, -1) # (B, 1, D)
-        # x = torch.cat((cls_tokens, fused_features), dim=1) # (B, 2*T+1, D)
-
-        # # 6. Qua Transformer Stage 2
-        # # Vì đã set batch_first=True, input x có dạng (B, Seq, D) là đúng
-        # out = self.visual_transformer_stage2(x)
-
-        # # 7. Lấy CLS Output (token đầu tiên)
-        # final_visual_features = out[:, 0, :]
-        
-        # 3. Fusion đơn giản (Late Fusion)
-        # Thay vì lấy sequence, ta lấy vector đại diện (mean hoặc cls) từ stage 1 luôn
-        # Sửa stage 1 để trả về vector (return_sequence=False)
-        face_vec = self.visual_transformer_stage1(face_features_raw, return_sequence=False)
-        body_vec = self.visual_transformer_stage1(body_features_raw, return_sequence=False)
-
-        # Nối lại
-        combined = torch.cat([face_vec, body_vec], dim=1) # (B, 1024)
-
-        # Qua mạng Fusion
-        final_visual_features = self.fusion_net(combined)
-
-        # 8. Normalize và Output
-        final_visual_features = self.ln_post(final_visual_features)
-        final_visual_features = final_visual_features / final_visual_features.norm(dim=-1, keepdim=True)
-        
-        logits = final_visual_features @ text_features.t() * self.clip_model.logit_scale.exp()
-        return logits
+        return output
