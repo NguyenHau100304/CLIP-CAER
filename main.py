@@ -16,7 +16,7 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import warnings
-from models.clip import clip
+from clip import clip
 from dataloader.video_dataloader import train_data_loader, test_data_loader
 from models.Generate_Model import GenerateModel
 from models.Text import *
@@ -153,14 +153,12 @@ def run_training(args: argparse.Namespace) -> None:
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss().to(args.device)
-    # Trong main.py
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},
         {"params": model.image_encoder.parameters(), "lr": args.lr_image_encoder},
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
-        # Sửa dòng này:
-        {"params": model.fusion_module.parameters(), "lr": args.lr} 
+        {"params": model.project_fc.parameters(), "lr": args.lr_image_encoder}
     ], momentum=args.momentum, weight_decay=args.weight_decay)
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=args.gamma)
