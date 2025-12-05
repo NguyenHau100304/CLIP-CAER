@@ -1190,7 +1190,8 @@
 /kaggle/input/raer-enhanced/RAER/images/SelfStudy/Laboratory/P004/006 34 5
 /kaggle/input/raer-enhanced/RAER/images/SelfStudy/Library/P013/016 30 1
 /kaggle/input/raer-enhanced/RAER/images/SelfStudy/Dormitory/P005/002 31 1
-/kaggle/input/raer-enhanced/RAER/images/SelfStudy/Dormitory/P003/042 35 3/kaggle/input/raer-enhanced/RAER/images/Class/Classroom/Class007/P007/007 31 1
+/kaggle/input/raer-enhanced/RAER/images/SelfStudy/Dormitory/P003/042 35 3
+/kaggle/input/raer-enhanced/RAER/images/Class/Classroom/Class007/P007/007 31 1
 /kaggle/input/raer-enhanced/RAER/images/Class/Classroom/Class008/P007/023 30 3
 /kaggle/input/raer-enhanced/RAER/images/SelfStudy/Laboratory/P011/030 30 1
 /kaggle/input/raer-enhanced/RAER/images/Class/Classroom/Class007/P003/004 31 5
