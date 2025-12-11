@@ -67,8 +67,8 @@ def get_class_info(args: argparse.Namespace) -> Tuple[list, list]:
 
 
 def build_dataloaders(args: argparse.Namespace) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]: 
-    train_annotation_file_path = os.path.join(args.root_dir, args.train_annotation)
-    test_annotation_file_path = os.path.join(args.root_dir, args.test_annotation)
+    train_annotation_file_path = args.train_annotation
+    test_annotation_file_path = args.test_annotation
     
     print("Loading train data...")
     train_data = train_data_loader(
