@@ -101,9 +101,11 @@ class VideoDataset(data.Dataset):
                 return occluded_image
 
     def _read_sample(self):
-        # Note: This adds the prefix to the path for file loading
-        tmp = ['/kaggle/input/raer-enhanced/RAER/' + x.strip().split(' ') for x in open(self.list_file)]
-        self.sample_list = [item for item in tmp]
+        # Lưu ý: Python không cho phép cộng str + list trực tiếp, ta phải xử lý từng phần tử
+        self.sample_list = [
+            [('/kaggle/input/raer-enhanced/' if 'images_new' in x else '/kaggle/input/raer-enhanced/RAER/') + x.strip().split(' ')[0]] + x.strip().split(' ')[1:]
+            for x in open(self.list_file) if x.strip()
+        ]
 
     def _parse_list(self):
         self.video_list = [VideoRecord(item) for item in self.sample_list]
@@ -141,13 +143,16 @@ class VideoDataset(data.Dataset):
         images = list()
         images_face = list()
         
-        # Define the prefix used in _read_sample so we can remove it
-        prefix_to_remove = '/kaggle/input/raer-enhanced/RAER/'
+        # --- CẤU HÌNH PREFIX ---
+        # Đường dẫn gốc cần loại bỏ để khớp với Key trong JSON
+        # Lưu ý: Cần có dấu '/' ở cuối để thay thế sạch sẽ
+        prefix_to_remove = '/kaggle/input/raer-enhanced/' 
 
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.duration):
-                # Ensure p is within bounds (safety check)
+                
+                # Safety check: đảm bảo index không vượt quá số frame
                 if p >= len(video_frames_path):
                     p = len(video_frames_path) - 1
                 
@@ -155,62 +160,92 @@ class VideoDataset(data.Dataset):
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
 
-                # --- MODIFIED SECTION START ---
-                # Remove the prefix from parent_dir to match JSON keys
+                # --- XỬ LÝ LOOKUP KEY (QUAN TRỌNG) ---
+                # Loại bỏ prefix tuyệt đối để lấy Key tương đối (vd: RAER/images/... hoặc images_new/...)
                 if parent_dir.startswith(prefix_to_remove):
                     lookup_key = parent_dir.replace(prefix_to_remove, "")
                 else:
-                    lookup_key = parent_dir
+                    # Trường hợp đường dẫn không bắt đầu bằng prefix (ví dụ chạy local hoặc đường dẫn khác)
+                    # Ta có thể thử tìm từ vị trí xuất hiện của 'RAER/' hoặc 'images_new/'
+                    if 'RAER/images' in parent_dir:
+                        idx = parent_dir.find('RAER/images')
+                        lookup_key = parent_dir[idx:]
+                    elif 'images_new' in parent_dir:
+                        idx = parent_dir.find('images_new')
+                        lookup_key = parent_dir[idx:]
+                    else:
+                        lookup_key = parent_dir # Fallback
 
-                # Face Box Lookup
+                # --- 1. LẤY FACE BOUNDING BOX ---
+                box = None
                 if lookup_key in self.boxs:
                     if file_name in self.boxs[lookup_key]:
                         box = self.boxs[lookup_key][file_name]
+                        # Kiểm tra nếu box rỗng (media pipe ko bắt được) -> lấy full ảnh
+                        if not box: 
+                            box = None 
                     else:
-                        box = None
-                        # print(f"DEBUG: Face file {file_name} not found in key {lookup_key}")
+                        # Có folder nhưng không có file ảnh này trong json
+                        # print(f"DEBUG: [Face] Key found but file missing: {file_name} in {lookup_key}")
+                        pass
                 else:
-                    box = None
-                    print(f"DEBUG: Face BBox key not found: {lookup_key}")
+                    # Không tìm thấy folder key trong json
+                    print(f"DEBUG: [Face] Key not found in JSON: {lookup_key}")
 
-                img_pil = Image.open(img_path)
-                img_pil_face = Image.open(img_path)
-
-                # Body Box Lookup
-                body_box_path = lookup_key 
-                
-                if body_box_path in self.body_boxes:
-                    body_box = self.body_boxes[body_box_path]
+                # --- 2. LẤY BODY BOUNDING BOX ---
+                body_box = None
+                # Body box dùng chung key với folder (lookup_key)
+                if lookup_key in self.body_boxes:
+                    body_box = self.body_boxes[lookup_key]
+                    if not body_box: body_box = None
                 else:
-                    body_box = None
-                    print(f"DEBUG: Body BBox key not found: {body_box_path}")
-                # --- MODIFIED SECTION END ---
+                    print(f"DEBUG: [Body] Key not found in JSON: {lookup_key}")
 
+                # --- XỬ LÝ ẢNH ---
+                img_pil = Image.open(img_path).convert('RGB') # Luôn convert RGB để tránh lỗi kênh màu
+                img_pil_face = img_pil.copy() # Copy để crop mặt riêng
+
+                # A. CROP BODY (Nếu có bbox thì crop, không thì lấy full)
                 if body_box is not None:
-                    left, upper, right, lower = body_box
+                    # Đảm bảo toạ độ int
+                    left, upper, right, lower = map(int, body_box)
                     img_pil_body = img_pil.crop((left, upper, right, lower))
                 else:
                     img_pil_body = img_pil
 
+                # Resize Body Image về kích thước model input (ví dụ 224x224)
                 img_cv_body = self._pil2cv(img_pil_body)
                 img_cv_body, r = self._resize_image(img_cv_body, self.image_size, self.image_size)
                 img_pil_body = self._cv2pil(img_cv_body)
-                seg_imgs = [img_pil_body]
+                
+                # B. CROP FACE
+                # Hàm _face_detect của bạn đã xử lý logic crop, padding và trả về ảnh
+                img_face_crop = self._face_detect(img_pil_face, box, margin=20, mode='face')
+                
+                # Resize Face Image (quan trọng: ảnh mặt sau khi crop size lộn xộn, cần resize chuẩn)
+                img_cv_face = self._pil2cv(img_face_crop)
+                img_cv_face, r_face = self._resize_image(img_cv_face, self.image_size, self.image_size)
+                img_pil_face_final = self._cv2pil(img_cv_face)
 
-                seg_imgs_face = [self._face_detect(img_pil_face, box, margin=20, mode='face')]
+                # Thêm vào list sequence
+                seg_imgs = [img_pil_body]
+                seg_imgs_face = [img_pil_face_final]
 
                 images.extend(seg_imgs)
                 images_face.extend(seg_imgs_face)
                 
+                # Tăng index để lấy frame tiếp theo (nếu duration > 1)
                 if p < record.num_frames - 1:
                     p += 1
 
+        # Transform (ToTensor, Normalize...)
         images = self.transform(images)
         images = torch.reshape(images, (-1, 3, self.image_size, self.image_size))
 
         images_face = self.transform(images_face)
         images_face = torch.reshape(images_face, (-1, 3, self.image_size, self.image_size))
         
+        # Trả về: (Batch Face, Batch Body, Label)
         return images_face, images, record.label - 1
 
     def __len__(self):
