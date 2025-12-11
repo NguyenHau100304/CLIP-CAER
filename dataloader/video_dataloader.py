@@ -143,11 +143,6 @@ class VideoDataset(data.Dataset):
         images = list()
         images_face = list()
         
-        # --- CẤU HÌNH PREFIX ---
-        # Đường dẫn gốc cần loại bỏ để khớp với Key trong JSON
-        # Lưu ý: Cần có dấu '/' ở cuối để thay thế sạch sẽ
-        prefix_to_remove = '/kaggle/input/raer-enhanced/' 
-
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.duration):
@@ -160,41 +155,41 @@ class VideoDataset(data.Dataset):
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
 
-                # --- XỬ LÝ LOOKUP KEY (QUAN TRỌNG) ---
-                # Loại bỏ prefix tuyệt đối để lấy Key tương đối (vd: RAER/images/... hoặc images_new/...)
-                if parent_dir.startswith(prefix_to_remove):
-                    lookup_key = parent_dir.replace(prefix_to_remove, "")
+                # --- XỬ LÝ LOOKUP KEY (LOGIC MỚI: TÌM SUBSTRING) ---
+                # Kiểm tra xem đường dẫn có chứa các từ khóa định danh dataset không
+                if 'RAER/images' in parent_dir:
+                    # Tìm vị trí bắt đầu của 'RAER/images' và lấy từ đó về sau
+                    idx = parent_dir.find('RAER/images')
+                    lookup_key = parent_dir[idx:]
+                elif 'images_new' in parent_dir:
+                    # Tìm vị trí bắt đầu của 'images_new' và lấy từ đó về sau
+                    idx = parent_dir.find('images_new')
+                    lookup_key = parent_dir[idx:]
                 else:
-                    # Trường hợp đường dẫn không bắt đầu bằng prefix (ví dụ chạy local hoặc đường dẫn khác)
-                    # Ta có thể thử tìm từ vị trí xuất hiện của 'RAER/' hoặc 'images_new/'
-                    if 'RAER/images' in parent_dir:
-                        idx = parent_dir.find('RAER/images')
-                        lookup_key = parent_dir[idx:]
-                    elif 'images_new' in parent_dir:
-                        idx = parent_dir.find('images_new')
-                        lookup_key = parent_dir[idx:]
+                    # Fallback: Nếu đường dẫn lạ, thử xóa prefix gốc hoặc dùng nguyên path
+                    prefix_root = '/kaggle/input/raer-enhanced/'
+                    if parent_dir.startswith(prefix_root):
+                        lookup_key = parent_dir.replace(prefix_root, "")
                     else:
-                        lookup_key = parent_dir # Fallback
-
+                        lookup_key = parent_dir
+                        
                 # --- 1. LẤY FACE BOUNDING BOX ---
                 box = None
                 if lookup_key in self.boxs:
                     if file_name in self.boxs[lookup_key]:
                         box = self.boxs[lookup_key][file_name]
-                        # Kiểm tra nếu box rỗng (media pipe ko bắt được) -> lấy full ảnh
+                        # Kiểm tra nếu box rỗng (media pipe ko bắt được) -> box = None để hàm _face_detect xử lý
                         if not box: 
                             box = None 
                     else:
-                        # Có folder nhưng không có file ảnh này trong json
-                        # print(f"DEBUG: [Face] Key found but file missing: {file_name} in {lookup_key}")
+                        # Có key folder nhưng không có file ảnh -> Box None (lấy full ảnh)
                         pass
                 else:
-                    # Không tìm thấy folder key trong json
+                    # Debug: In ra nếu không tìm thấy folder trong JSON
                     print(f"DEBUG: [Face] Key not found in JSON: {lookup_key}")
 
                 # --- 2. LẤY BODY BOUNDING BOX ---
                 body_box = None
-                # Body box dùng chung key với folder (lookup_key)
                 if lookup_key in self.body_boxes:
                     body_box = self.body_boxes[lookup_key]
                     if not body_box: body_box = None
@@ -202,27 +197,25 @@ class VideoDataset(data.Dataset):
                     print(f"DEBUG: [Body] Key not found in JSON: {lookup_key}")
 
                 # --- XỬ LÝ ẢNH ---
-                img_pil = Image.open(img_path).convert('RGB') # Luôn convert RGB để tránh lỗi kênh màu
-                img_pil_face = img_pil.copy() # Copy để crop mặt riêng
+                img_pil = Image.open(img_path).convert('RGB') 
+                img_pil_face = img_pil.copy() 
 
-                # A. CROP BODY (Nếu có bbox thì crop, không thì lấy full)
+                # A. CROP BODY 
                 if body_box is not None:
-                    # Đảm bảo toạ độ int
                     left, upper, right, lower = map(int, body_box)
                     img_pil_body = img_pil.crop((left, upper, right, lower))
                 else:
                     img_pil_body = img_pil
 
-                # Resize Body Image về kích thước model input (ví dụ 224x224)
+                # Resize Body 
                 img_cv_body = self._pil2cv(img_pil_body)
                 img_cv_body, r = self._resize_image(img_cv_body, self.image_size, self.image_size)
                 img_pil_body = self._cv2pil(img_cv_body)
                 
                 # B. CROP FACE
-                # Hàm _face_detect của bạn đã xử lý logic crop, padding và trả về ảnh
                 img_face_crop = self._face_detect(img_pil_face, box, margin=20, mode='face')
                 
-                # Resize Face Image (quan trọng: ảnh mặt sau khi crop size lộn xộn, cần resize chuẩn)
+                # Resize Face
                 img_cv_face = self._pil2cv(img_face_crop)
                 img_cv_face, r_face = self._resize_image(img_cv_face, self.image_size, self.image_size)
                 img_pil_face_final = self._cv2pil(img_cv_face)
@@ -234,18 +227,16 @@ class VideoDataset(data.Dataset):
                 images.extend(seg_imgs)
                 images_face.extend(seg_imgs_face)
                 
-                # Tăng index để lấy frame tiếp theo (nếu duration > 1)
                 if p < record.num_frames - 1:
                     p += 1
 
-        # Transform (ToTensor, Normalize...)
+        # Transform 
         images = self.transform(images)
         images = torch.reshape(images, (-1, 3, self.image_size, self.image_size))
 
         images_face = self.transform(images_face)
         images_face = torch.reshape(images_face, (-1, 3, self.image_size, self.image_size))
         
-        # Trả về: (Batch Face, Batch Body, Label)
         return images_face, images, record.label - 1
 
     def __len__(self):
