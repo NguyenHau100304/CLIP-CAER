@@ -30,7 +30,7 @@ class VideoRecord(object):
         return int(self._data[2])
 
 class VideoDataset(data.Dataset):
-    def __init__(self, list_file, num_segments, duration, mode, transform, image_size,bounding_box_face,bounding_box_body):
+    def __init__(self, list_file, num_segments, duration, mode, transform, image_size, bounding_box_face, bounding_box_body):
         self.list_file = list_file
         self.duration = duration
         self.num_segments = num_segments
@@ -48,24 +48,21 @@ class VideoDataset(data.Dataset):
         with open(self.bounding_box_face, 'r') as f:
             self.boxs = json.load(f)
 
-
-    
     def _read_body_boxes(self):
         with open(self.bounding_box_body, 'r') as f:
             self.body_boxes = json.load(f)
 
-
-    def _cv2pil(self,im_cv):
+    def _cv2pil(self, im_cv):
         cv_img_rgb = cv2.cvtColor(im_cv, cv2.COLOR_BGR2RGB)
         pillow_img = Image.fromarray(cv_img_rgb.astype('uint8'))
         return pillow_img
 
-    def _pil2cv(self,im_pil):
+    def _pil2cv(self, im_pil):
         cv_img_rgb = np.array(im_pil)
         cv_img_bgr = cv2.cvtColor(cv_img_rgb, cv2.COLOR_RGB2BGR)
         return cv_img_bgr
 
-    def _resize_image(self,im, width, height):
+    def _resize_image(self, im, width, height):
         w, h = im.shape[1], im.shape[0]
         r = min(width / w, height / h)
         new_w, new_h = int(w * r), int(h * r)
@@ -81,7 +78,7 @@ class VideoDataset(data.Dataset):
         im = cv2.copyMakeBorder(im, top, bottom, left, right, borderType=cv2.BORDER_CONSTANT, value=[0, 0, 0])
         return im, r
 
-    def _face_detect(self,img,box,margin,mode = 'face'):
+    def _face_detect(self, img, box, margin, mode='face'):
         if box is None:
             return img
         else:
@@ -102,23 +99,17 @@ class VideoDataset(data.Dataset):
                 draw = ImageDraw.Draw(occluded_image)
                 draw.rectangle([left, upper, right, lower], fill=(0, 0, 0))
                 return occluded_image
-    
+
     def _read_sample(self):
-        tmp = [x.strip().split(' ') for x in open(self.list_file)]
+        # Note: This adds the prefix to the path for file loading
+        tmp = ['/kaggle/input/raer-enhanced/RAER/' + x.strip().split(' ') for x in open(self.list_file)]
         self.sample_list = [item for item in tmp]
 
-
     def _parse_list(self):
-        #
-        # Data Form: [video_id, num_frames, class_idx]
-        #
-        self.video_list = [VideoRecord(item) for item in self.sample_list]  
+        self.video_list = [VideoRecord(item) for item in self.sample_list]
         print(('video number:%d' % (len(self.video_list))))
 
     def _get_train_indices(self, record):
-        # 
-        # Split all frames into seg parts, then select frame in each part randomly
-        #
         average_duration = (record.num_frames - self.duration + 1) // self.num_segments
         if average_duration > 0:
             offsets = np.multiply(list(range(self.num_segments)), average_duration) + randint(average_duration, size=self.num_segments)
@@ -129,9 +120,6 @@ class VideoDataset(data.Dataset):
         return offsets
 
     def _get_test_indices(self, record):
-        # 
-        # Split all frames into seg parts, then select frame in the mid of each part
-        #
         if record.num_frames > self.num_segments + self.duration - 1:
             tick = (record.num_frames - self.duration + 1) / float(self.num_segments)
             offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
@@ -149,29 +137,55 @@ class VideoDataset(data.Dataset):
 
     def get(self, record, indices):
         video_frames_path = glob.glob(os.path.join(record.path, '*'))
-        video_frames_path.sort()  
-        random_num = random.random()
+        video_frames_path.sort()
         images = list()
         images_face = list()
+        
+        # Define the prefix used in _read_sample so we can remove it
+        prefix_to_remove = '/kaggle/input/raer-enhanced/RAER/'
+
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.duration):
+                # Ensure p is within bounds (safety check)
+                if p >= len(video_frames_path):
+                    p = len(video_frames_path) - 1
+                
                 img_path = os.path.join(video_frames_path[p])
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
 
-                if parent_dir in self.boxs:
-                    if file_name in self.boxs[parent_dir]:
-                        box = self.boxs[parent_dir][file_name]
+                # --- MODIFIED SECTION START ---
+                # Remove the prefix from parent_dir to match JSON keys
+                if parent_dir.startswith(prefix_to_remove):
+                    lookup_key = parent_dir.replace(prefix_to_remove, "")
+                else:
+                    lookup_key = parent_dir
+
+                # Face Box Lookup
+                if lookup_key in self.boxs:
+                    if file_name in self.boxs[lookup_key]:
+                        box = self.boxs[lookup_key][file_name]
                     else:
                         box = None
+                        # print(f"DEBUG: Face file {file_name} not found in key {lookup_key}")
                 else:
                     box = None
+                    print(f"DEBUG: Face BBox key not found: {lookup_key}")
 
                 img_pil = Image.open(img_path)
                 img_pil_face = Image.open(img_path)
-                body_box_path = parent_dir
-                body_box = self.body_boxes[body_box_path] if body_box_path in self.body_boxes else None
+
+                # Body Box Lookup
+                body_box_path = lookup_key 
+                
+                if body_box_path in self.body_boxes:
+                    body_box = self.body_boxes[body_box_path]
+                else:
+                    body_box = None
+                    print(f"DEBUG: Body BBox key not found: {body_box_path}")
+                # --- MODIFIED SECTION END ---
+
                 if body_box is not None:
                     left, upper, right, lower = body_box
                     img_pil_body = img_pil.crop((left, upper, right, lower))
@@ -182,12 +196,12 @@ class VideoDataset(data.Dataset):
                 img_cv_body, r = self._resize_image(img_cv_body, self.image_size, self.image_size)
                 img_pil_body = self._cv2pil(img_cv_body)
                 seg_imgs = [img_pil_body]
-                
 
-                seg_imgs_face = [self._face_detect(img_pil_face,box,margin=20,mode='face')]
+                seg_imgs_face = [self._face_detect(img_pil_face, box, margin=20, mode='face')]
 
                 images.extend(seg_imgs)
                 images_face.extend(seg_imgs_face)
+                
                 if p < record.num_frames - 1:
                     p += 1
 
@@ -196,7 +210,8 @@ class VideoDataset(data.Dataset):
 
         images_face = self.transform(images_face)
         images_face = torch.reshape(images_face, (-1, 3, self.image_size, self.image_size))
-        return images_face,images,record.label-1
+        
+        return images_face, images, record.label - 1
 
     def __len__(self):
         return len(self.video_list)
