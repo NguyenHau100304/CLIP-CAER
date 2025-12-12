@@ -181,8 +181,10 @@ class VideoDataset(data.Dataset):
                         # Kiểm tra nếu box rỗng (media pipe ko bắt được) -> box = None để hàm _face_detect xử lý
                         if not box: 
                             box = None 
+                            print(f"DEBUG: [Face] Empty box for key: {lookup_key}, file: {file_name}")
                     else:
                         # Có key folder nhưng không có file ảnh -> Box None (lấy full ảnh)
+                        print(f"DEBUG: [Face] File not found in JSON: {lookup_key}, file: {file_name}")
                         pass
                 else:
                     # Debug: In ra nếu không tìm thấy folder trong JSON
@@ -192,7 +194,9 @@ class VideoDataset(data.Dataset):
                 body_box = None
                 if lookup_key in self.body_boxes:
                     body_box = self.body_boxes[lookup_key]
-                    if not body_box: body_box = None
+                    if not body_box: 
+                        body_box = None
+                        print(f"DEBUG: [Body] Empty body box for key: {lookup_key}")
                 else:
                     print(f"DEBUG: [Body] Key not found in JSON: {lookup_key}")
 
