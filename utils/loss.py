@@ -52,3 +52,44 @@ class BlvLoss(nn.Module):
         loss = F.cross_entropy(pred, target, reduction='none')
 
         return loss.mean()
+    
+
+# Mở file: utils/loss.py
+# Thêm đoạn code sau vào:
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.alpha = alpha # Alpha là tensor chứa trọng số của các lớp (class weights)
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # inputs: logits từ model [Batch_size, Num_classes]
+        # targets: labels thật [Batch_size]
+        
+        # Tính Cross Entropy Loss (không reduction để giữ nguyên kích thước từng mẫu)
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        
+        # Tính pt (xác suất dự đoán đúng lớp target)
+        pt = torch.exp(-ce_loss)
+        
+        # Công thức Focal Loss: (1 - pt)^gamma * log(pt)
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        
+        # Áp dụng trọng số alpha (nếu có)
+        if self.alpha is not None:
+            if self.alpha.device != inputs.device:
+                self.alpha = self.alpha.to(inputs.device)
+            
+            # Lấy trọng số tương ứng với từng target trong batch
+            alpha_t = self.alpha[targets]
+            focal_loss = alpha_t * focal_loss
+
+        # Reduction (Mean hoặc Sum)
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
