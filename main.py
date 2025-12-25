@@ -152,7 +152,14 @@ def run_training(args: argparse.Namespace) -> None:
     print("=> Dataloaders built successfully.")
 
     # Loss and optimizer
-    criterion = nn.CrossEntropyLoss().to(args.device)
+    # THÊM ĐOẠN NÀY: Khai báo số lượng mẫu thực tế của bạn
+    # Class 1: 1383, Class 2: 129, Class 3: 30, Class 4: 157, Class 5: 422
+    cls_num_list = [1383, 129, 30, 157, 422] 
+    
+    # Tùy chọn 1: Sử dụng LDAM Loss kết hợp với Class Balanced Weights (Khuyên dùng)
+    per_cls_weights = get_cb_weights(cls_num_list, beta=0.9999)
+    criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).to(args.device)
+    
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},
