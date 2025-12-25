@@ -5,7 +5,6 @@ import glob
 import os
 from dataloader.video_transform import *
 import numpy as np
-#from imblearn.over_sampling import RandomOverSampler
 import cv2
 from PIL import Image
 from PIL import ImageDraw
@@ -30,7 +29,7 @@ class VideoRecord(object):
         return int(self._data[2])
 
 class VideoDataset(data.Dataset):
-    def __init__(self, list_file, num_segments, duration, mode, transform, image_size, bounding_box_face, bounding_box_body):
+    def __init__(self, list_file, num_segments, duration, mode, transform, image_size,bounding_box_face,bounding_box_body):
         self.list_file = list_file
         self.duration = duration
         self.num_segments = num_segments
@@ -48,21 +47,24 @@ class VideoDataset(data.Dataset):
         with open(self.bounding_box_face, 'r') as f:
             self.boxs = json.load(f)
 
+
+    
     def _read_body_boxes(self):
         with open(self.bounding_box_body, 'r') as f:
             self.body_boxes = json.load(f)
 
-    def _cv2pil(self, im_cv):
+
+    def _cv2pil(self,im_cv):
         cv_img_rgb = cv2.cvtColor(im_cv, cv2.COLOR_BGR2RGB)
         pillow_img = Image.fromarray(cv_img_rgb.astype('uint8'))
         return pillow_img
 
-    def _pil2cv(self, im_pil):
+    def _pil2cv(self,im_pil):
         cv_img_rgb = np.array(im_pil)
         cv_img_bgr = cv2.cvtColor(cv_img_rgb, cv2.COLOR_RGB2BGR)
         return cv_img_bgr
 
-    def _resize_image(self, im, width, height):
+    def _resize_image(self,im, width, height):
         w, h = im.shape[1], im.shape[0]
         r = min(width / w, height / h)
         new_w, new_h = int(w * r), int(h * r)
@@ -78,7 +80,7 @@ class VideoDataset(data.Dataset):
         im = cv2.copyMakeBorder(im, top, bottom, left, right, borderType=cv2.BORDER_CONSTANT, value=[0, 0, 0])
         return im, r
 
-    def _face_detect(self, img, box, margin, mode='face'):
+    def _face_detect(self,img,box,margin,mode = 'face'):
         if box is None:
             return img
         else:
@@ -99,19 +101,23 @@ class VideoDataset(data.Dataset):
                 draw = ImageDraw.Draw(occluded_image)
                 draw.rectangle([left, upper, right, lower], fill=(0, 0, 0))
                 return occluded_image
-
+    
     def _read_sample(self):
-        # Lưu ý: Python không cho phép cộng str + list trực tiếp, ta phải xử lý từng phần tử
-        self.sample_list = [
-            [('/kaggle/input/raer-enhanced/' if 'images_new' in x else '/kaggle/input/raer-enhanced/RAER/') + x.strip().split(' ')[0]] + x.strip().split(' ')[1:]
-            for x in open(self.list_file) if x.strip()
-        ]
+        tmp = [x.strip().split(' ') for x in open(self.list_file)]
+        self.sample_list = [item for item in tmp]
+
 
     def _parse_list(self):
-        self.video_list = [VideoRecord(item) for item in self.sample_list]
+        #
+        # Data Form: [video_id, num_frames, class_idx]
+        #
+        self.video_list = [VideoRecord(item) for item in self.sample_list]  
         print(('video number:%d' % (len(self.video_list))))
 
     def _get_train_indices(self, record):
+        # 
+        # Split all frames into seg parts, then select frame in each part randomly
+        #
         average_duration = (record.num_frames - self.duration + 1) // self.num_segments
         if average_duration > 0:
             offsets = np.multiply(list(range(self.num_segments)), average_duration) + randint(average_duration, size=self.num_segments)
@@ -122,6 +128,9 @@ class VideoDataset(data.Dataset):
         return offsets
 
     def _get_test_indices(self, record):
+        # 
+        # Split all frames into seg parts, then select frame in the mid of each part
+        #
         if record.num_frames > self.num_segments + self.duration - 1:
             tick = (record.num_frames - self.duration + 1) / float(self.num_segments)
             offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
@@ -139,109 +148,54 @@ class VideoDataset(data.Dataset):
 
     def get(self, record, indices):
         video_frames_path = glob.glob(os.path.join(record.path, '*'))
-        video_frames_path.sort()
+        video_frames_path.sort()  
+        random_num = random.random()
         images = list()
         images_face = list()
-        
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.duration):
-                
-                # Safety check: đảm bảo index không vượt quá số frame
-                if p >= len(video_frames_path):
-                    p = len(video_frames_path) - 1
-                
                 img_path = os.path.join(video_frames_path[p])
                 parent_dir = os.path.dirname(img_path)
                 file_name = os.path.basename(img_path)
 
-                # --- XỬ LÝ LOOKUP KEY (LOGIC MỚI: TÌM SUBSTRING) ---
-                # Kiểm tra xem đường dẫn có chứa các từ khóa định danh dataset không
-                if 'RAER/images' in parent_dir:
-                    # Tìm vị trí bắt đầu của 'RAER/images' và lấy từ đó về sau
-                    idx = parent_dir.find('RAER/images')
-                    lookup_key = parent_dir[idx:]
-                elif 'images_new' in parent_dir:
-                    # Tìm vị trí bắt đầu của 'images_new' và lấy từ đó về sau
-                    idx = parent_dir.find('images_new')
-                    lookup_key = parent_dir[idx:]
-                else:
-                    # Fallback: Nếu đường dẫn lạ, thử xóa prefix gốc hoặc dùng nguyên path
-                    prefix_root = '/kaggle/input/raer-enhanced/'
-                    if parent_dir.startswith(prefix_root):
-                        lookup_key = parent_dir.replace(prefix_root, "")
+                if parent_dir in self.boxs:
+                    if file_name in self.boxs[parent_dir]:
+                        box = self.boxs[parent_dir][file_name]
                     else:
-                        lookup_key = parent_dir
-                        
-                # --- 1. LẤY FACE BOUNDING BOX ---
-                box = None
-                if lookup_key in self.boxs:
-                    if file_name in self.boxs[lookup_key]:
-                        box = self.boxs[lookup_key][file_name]
-                        # Kiểm tra nếu box rỗng (media pipe ko bắt được) -> box = None để hàm _face_detect xử lý
-                        if not box: 
-                            box = None 
-                            print(f"DEBUG: [Face] Empty box for key: {lookup_key}, file: {file_name}")
-                    else:
-                        # Có key folder nhưng không có file ảnh -> Box None (lấy full ảnh)
-                        print(f"DEBUG: [Face] File not found in JSON: {lookup_key}, file: {file_name}")
-                        pass
+                        box = None
                 else:
-                    # Debug: In ra nếu không tìm thấy folder trong JSON
-                    print(f"DEBUG: [Face] Key not found in JSON: {lookup_key}")
+                    box = None
 
-                # --- 2. LẤY BODY BOUNDING BOX ---
-                body_box = None
-                if lookup_key in self.body_boxes:
-                    body_box = self.body_boxes[lookup_key]
-                    if not body_box: 
-                        body_box = None
-                        print(f"DEBUG: [Body] Empty body box for key: {lookup_key}")
-                else:
-                    print(f"DEBUG: [Body] Key not found in JSON: {lookup_key}")
-
-                # --- XỬ LÝ ẢNH ---
-                img_pil = Image.open(img_path).convert('RGB') 
-                img_pil_face = img_pil.copy() 
-
-                # A. CROP BODY 
+                img_pil = Image.open(img_path)
+                img_pil_face = Image.open(img_path)
+                body_box_path = parent_dir
+                body_box = self.body_boxes[body_box_path] if body_box_path in self.body_boxes else None
                 if body_box is not None:
-                    left, upper, right, lower = map(int, body_box)
+                    left, upper, right, lower = body_box
                     img_pil_body = img_pil.crop((left, upper, right, lower))
                 else:
                     img_pil_body = img_pil
 
-                # Resize Body 
                 img_cv_body = self._pil2cv(img_pil_body)
                 img_cv_body, r = self._resize_image(img_cv_body, self.image_size, self.image_size)
                 img_pil_body = self._cv2pil(img_cv_body)
-                
-                # B. CROP FACE
-                img_face_crop = self._face_detect(img_pil_face, box, margin=20, mode='face')
-                
-                # Resize Face
-                img_cv_face = self._pil2cv(img_face_crop)
-                img_cv_face, r_face = self._resize_image(img_cv_face, self.image_size, self.image_size)
-                img_pil_face_final = self._cv2pil(img_cv_face)
-
-                # Thêm vào list sequence
                 seg_imgs = [img_pil_body]
-                seg_imgs_face = [img_pil_face_final]
+                
+
+                seg_imgs_face = [self._face_detect(img_pil_face,box,margin=20,mode='face')]
 
                 images.extend(seg_imgs)
                 images_face.extend(seg_imgs_face)
-                
                 if p < record.num_frames - 1:
                     p += 1
 
-        # Transform 
         images = self.transform(images)
         images = torch.reshape(images, (-1, 3, self.image_size, self.image_size))
 
         images_face = self.transform(images_face)
         images_face = torch.reshape(images_face, (-1, 3, self.image_size, self.image_size))
-        
-        return images_face, images, record.label - 1
+        return images_face,images,record.label-1
 
     def __len__(self):
         return len(self.video_list)

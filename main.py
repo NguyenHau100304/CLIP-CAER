@@ -152,16 +152,7 @@ def run_training(args: argparse.Namespace) -> None:
     print("=> Dataloaders built successfully.")
 
     # Loss and optimizer
-    # Loss and optimizer
-    
-    # Định nghĩa trọng số cho 5 lớp (Class 1 -> Class 5 tương ứng index 0 -> 4)
-    # Class counts: [1383, 129, 120, 157, 422]
-    weights = [0.32, 3.43, 3.68, 2.82, 1.05]
-    class_weights = torch.FloatTensor(weights).to(args.device)
-    
-    # Sử dụng FocalLoss với gamma=2.0 (giá trị phổ biến) và alpha là trọng số lớp
-    print(f"=> Using FocalLoss with gamma=2.0 and class weights: {weights}")
-    criterion = FocalLoss(alpha=class_weights, gamma=2.0).to(args.device)
+    criterion = nn.CrossEntropyLoss().to(args.device)
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},

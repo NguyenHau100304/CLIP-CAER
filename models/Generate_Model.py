@@ -13,14 +13,14 @@ class GenerateModel(nn.Module):
         self.text_encoder = TextEncoder(clip_model)
         self.dtype = clip_model.dtype
         self.image_encoder = clip_model.visual
-        self.temporal_net = Temporal_Transformer_Cls(num_patches=16,
+        self.temporal_net = Temporal_Transformer_Mean(num_patches=16,
                                                      input_dim=512,
                                                      depth=args.temporal_layers,
                                                      heads=8,
                                                      mlp_dim=1024,
                                                      dim_head=64)
         
-        self.temporal_net_body = Temporal_Transformer_Cls(num_patches=16,
+        self.temporal_net_body = Temporal_Transformer_Mean(num_patches=16,
                                                      input_dim=512,
                                                      depth=args.temporal_layers,
                                                      heads=8,
