@@ -27,7 +27,7 @@ def build_model(args: argparse.Namespace, input_text: list) -> torch.nn.Module:
     for name, param in model.named_parameters():
         param.requires_grad = False
 
-    trainable_params_keywords = ["image_encoder", "temporal_net", "prompt_learner", "temporal_net_body", "project_fc"]
+    trainable_params_keywords = ["image_encoder", "temporal_net", "prompt_learner", "temporal_net_body", "fusion_module"]
     print('\nTrainable parameters:')
     for name, param in model.named_parameters():
         if any(keyword in name for keyword in trainable_params_keywords):
