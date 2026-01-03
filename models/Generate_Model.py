@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 from models.Temporal_Model import Temporal_Transformer_Cls
-from models.Prompt_Learner import PromptLearner
-from models.Text import TextEncoder
+from models.Prompt_Learner import *
 
 class FusionTransformer(nn.Module):
     """
