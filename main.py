@@ -153,12 +153,14 @@ def run_training(args: argparse.Namespace) -> None:
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss().to(args.device)
+    
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},
         {"params": model.image_encoder.parameters(), "lr": args.lr_image_encoder},
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
-        {"params": model.project_fc.parameters(), "lr": args.lr_image_encoder}
+        # --- SỬA DÒNG NÀY ---
+        {"params": model.fusion_module.parameters(), "lr": args.lr} 
     ], momentum=args.momentum, weight_decay=args.weight_decay)
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=args.gamma)
