@@ -88,12 +88,6 @@ class Trainer:
         return war, uar, losses.avg, cm
         
     def train_epoch(self, train_loader, epoch_num):
-        # DRW Strategy: Kích hoạt trọng số sau epoch 15
-        if epoch_num >= 15 and hasattr(self.criterion, 'weight'):
-             # Đảm bảo bạn đã tính per_cls_weights và lưu đâu đó hoặc truyền vào
-             # Nếu dùng code đơn giản bên trên thì cứ để mặc định weight ngay từ đầu cũng được 
-             # nếu bạn không muốn sửa code quá nhiều.
-             pass 
         
         return self._run_one_epoch(train_loader, str(epoch_num), is_train=True)
     
