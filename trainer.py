@@ -88,7 +88,7 @@ class Trainer:
         return war, uar, losses.avg, cm
         
     def train_epoch(self, train_loader, epoch_num):
-        """Executes one full training epoch."""
+        
         return self._run_one_epoch(train_loader, str(epoch_num), is_train=True)
     
     def validate(self, val_loader, epoch_num_str="Final"):
