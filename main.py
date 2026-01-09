@@ -47,6 +47,7 @@ exp_group.add_argument('--dataset', type=str, default='RAER', help='Name of the 
 exp_group.add_argument('--gpu', type=int, default=2, help='ID of the GPU to use.')
 exp_group.add_argument('--workers', type=int, default=4, help='Number of data loading workers.')
 exp_group.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility.')
+exp_group.add_argument('--local_rank', type=int, default=0)
 
 # --- Data & Path ---
 path_group = parser.add_argument_group('Data & Path', 'Paths to datasets and pretrained models')
@@ -153,6 +154,8 @@ def run_training(args: argparse.Namespace) -> None:
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss().to(args.device)
+    
+    # Define optimizer BEFORE wrapping in DataParallel to keep parameter references valid
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
         {"params": model.temporal_net_body.parameters(), "lr": args.lr},
@@ -163,6 +166,12 @@ def run_training(args: argparse.Namespace) -> None:
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=args.gamma)
     
+    # --- [ADDED] SUPPORT FOR 2 GPU T4 (DataParallel) ---
+    if torch.cuda.device_count() > 1:
+        print(f"!!! Detected {torch.cuda.device_count()} GPUs. Wrapping model with DataParallel !!!")
+        model = nn.DataParallel(model)
+    # ---------------------------------------------------
+
     # Trainer
     trainer = Trainer(model, criterion, optimizer, scheduler, args.device, log_txt_path)
     
@@ -189,9 +198,17 @@ def run_training(args: argparse.Namespace) -> None:
         # Save checkpoint
         is_best = val_uar > best_uar
         best_uar = max(val_uar, best_uar)
+        
+        # --- [ADDED] Handle saving state_dict when using DataParallel ---
+        if isinstance(model, nn.DataParallel):
+            save_state_dict = model.module.state_dict()
+        else:
+            save_state_dict = model.state_dict()
+        # -------------------------------------------------------------
+
         save_checkpoint({
             'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
+            'state_dict': save_state_dict,
             'best_acc': best_uar, 
             'optimizer': optimizer.state_dict(),
             'recorder': recorder
@@ -208,8 +225,15 @@ def run_training(args: argparse.Namespace) -> None:
             f.write(f'An epoch time: {epoch_time:.2f}s\n\n')
 
     # Final evaluation with best model
-    pre_trained_dict = torch.load(best_checkpoint_path,map_location=f"cuda:{args.gpu}")['state_dict']
-    model.load_state_dict(pre_trained_dict)
+    pre_trained_dict = torch.load(best_checkpoint_path, map_location=f"cuda:{args.gpu}")['state_dict']
+    
+    # --- [ADDED] Handle loading state_dict into DataParallel model ---
+    if isinstance(model, nn.DataParallel):
+        model.module.load_state_dict(pre_trained_dict)
+    else:
+        model.load_state_dict(pre_trained_dict)
+    # -------------------------------------------------------------
+
     computer_uar_war(
         val_loader=val_loader,
         model=model,
@@ -230,7 +254,19 @@ def run_eval(args: argparse.Namespace) -> None:
     model = model.to(args.device)
 
     # Load pretrained weights
-    model.load_state_dict(torch.load(args.eval_checkpoint,map_location=args.device)['state_dict'])
+    if os.path.isfile(args.eval_checkpoint):
+        print(f"=> Loading checkpoint '{args.eval_checkpoint}'")
+        checkpoint = torch.load(args.eval_checkpoint, map_location=args.device)
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        print(f"=> No checkpoint found at '{args.eval_checkpoint}'")
+        return
+
+    # --- [ADDED] SUPPORT FOR 2 GPU T4 (DataParallel) during Eval ---
+    if torch.cuda.device_count() > 1:
+        print(f"!!! Detected {torch.cuda.device_count()} GPUs. Wrapping model with DataParallel !!!")
+        model = nn.DataParallel(model)
+    # ---------------------------------------------------------------
 
     # Load data
     _, val_loader = build_dataloaders(args)
