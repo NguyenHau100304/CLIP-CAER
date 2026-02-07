@@ -26,7 +26,7 @@ class GenerateModel(nn.Module):
         self.clip_model_ = clip_model
         # Đã loại bỏ self.temporal_net_body và self.project_fc
         
-    def forward(self, image_face):
+    def forward(self, image_face, image_body):
         ################# Visual Part #################
         # Face Part Processing
         n, t, c, h, w = image_face.shape
