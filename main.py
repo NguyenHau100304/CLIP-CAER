@@ -155,7 +155,6 @@ def run_training(args: argparse.Namespace) -> None:
     criterion = nn.CrossEntropyLoss().to(args.device)
     optimizer = torch.optim.SGD([
         {"params": model.temporal_net.parameters(), "lr": args.lr},
-        {"params": model.temporal_net_body.parameters(), "lr": args.lr},
         {"params": model.image_encoder.parameters(), "lr": args.lr_image_encoder},
         {"params": model.prompt_learner.parameters(), "lr": args.lr_prompt_learner},
         {"params": model.project_fc.parameters(), "lr": args.lr_image_encoder}
