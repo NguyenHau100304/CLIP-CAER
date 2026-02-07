@@ -1,4 +1,5 @@
 from torch import nn
+import torch
 from models.Temporal_Model import *
 from models.Prompt_Learner import *
 import copy
@@ -13,6 +14,8 @@ class GenerateModel(nn.Module):
         self.text_encoder = TextEncoder(clip_model)
         self.dtype = clip_model.dtype
         self.image_encoder = clip_model.visual
+        
+        # Chỉ giữ lại Temporal Net cho nhánh Face
         self.temporal_net = Temporal_Transformer_Cls(num_patches=16,
                                                      input_dim=512,
                                                      depth=args.temporal_layers,
@@ -20,34 +23,20 @@ class GenerateModel(nn.Module):
                                                      mlp_dim=1024,
                                                      dim_head=64)
         
-        self.temporal_net_body = Temporal_Transformer_Cls(num_patches=16,
-                                                     input_dim=512,
-                                                     depth=args.temporal_layers,
-                                                     heads=8,
-                                                     mlp_dim=1024,
-                                                     dim_head=64)
         self.clip_model_ = clip_model
-        self.project_fc = nn.Linear(1024, 512)
+        # Đã loại bỏ self.temporal_net_body và self.project_fc
         
-    def forward(self, image_face,image_body):
+    def forward(self, image_face):
         ################# Visual Part #################
-        # Face Part
+        # Face Part Processing
         n, t, c, h, w = image_face.shape
         image_face = image_face.contiguous().view(-1, c, h, w)
         image_face_features = self.image_encoder(image_face.type(self.dtype))
         image_face_features = image_face_features.contiguous().view(n, t, -1)
-        video_face_features = self.temporal_net(image_face_features)  # (4*512)
+        video_face_features = self.temporal_net(image_face_features)  # Output shape: (Batch, 512)
         
-        # Body Part
-        n, t, c, h, w = image_body.shape
-        image_body = image_body.contiguous().view(-1, c, h, w)
-        image_body_features = self.image_encoder(image_body.type(self.dtype))
-        image_body_features = image_body_features.contiguous().view(n, t, -1)
-        video_body_features = self.temporal_net_body(image_body_features)
-
-        # Concatenate the two parts
-        video_features = torch.cat((video_face_features, video_body_features), dim=-1)
-        video_features = self.project_fc(video_features)
+        # Sử dụng trực tiếp đặc trưng khuôn mặt làm video_features
+        video_features = video_face_features
         video_features = video_features / video_features.norm(dim=-1, keepdim=True)
 
         ################# Text Part ###################
@@ -57,5 +46,6 @@ class GenerateModel(nn.Module):
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
         ###############################################
 
+        # Tính toán Logits
         output = video_features @ text_features.t() / 0.01
         return output
